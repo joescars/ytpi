@@ -1,0 +1,15 @@
+[Unit]
+Description=YouTube Video Downloader Service
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/ytpi
+Environment=PATH=/home/pi/ytpi/venv/bin
+ExecStart=/home/pi/ytpi/venv/bin/python app.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -15,6 +15,8 @@ Host: localhost:7434
 Content-Type: application/json
 
 {
-  "urls": ["https://youtu.be/nIojG_mu0Cw?si=UPvM1UAkgnfhSlwX",
-            "https://youtu.be/SNjAR04st_U?si=q3do8hEwkiQNlTJm"]
+  "urls": [
+            "https://www.youtube.com/playlist?list=PLrLEqwuz-mRKxFJJWulYDvl-gt61oKxf0",
+            "https://www.youtube.com/playlist?list=PL6tW9BrhiPTCDteflzehKS6Cn3a79-iCs"
+          ]
 }

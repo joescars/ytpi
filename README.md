@@ -1,54 +1,99 @@
-# YTPI - YouTube Downloader API
+# YouTube Downloader API (ytpi)
 
-## Overview
-YTPI is a Flask-based API that allows users to download YouTube videos using `yt-dlp`. It supports both single URL downloads and batch downloads via an array of URLs. The downloaded videos are stored in the `downloads/` directory.
+A Flask-based web service for downloading YouTube videos using yt-dlp. Designed to run on Raspberry Pi with local network access only.
 
 ## Features
-- Restricts access to local clients based on IP address.
-- Supports single and batch URL downloads.
-- Provides job status updates via API.
-- Embeds metadata into downloaded videos.
 
-## Endpoints
+- Download single or multiple YouTube videos
+- Queue-based processing
+- Web dashboard to monitor downloads
+- RESTful API
+- Local network access only (security feature)
+- Systemd service support for Raspberry Pi
 
-### `/download` (POST)
-**Description:** Enqueue a download job.
+## Installation on Raspberry Pi
 
-**Request Body:**
-- Single URL:
-  ```json
-  {"url": "https://youtube.com/watch?v=example"}
-  ```
-- Multiple URLs:
-  ```json
-  {"urls": ["https://youtube.com/watch?v=example1", "https://youtube.com/watch?v=example2"]}
-  ```
+1. **Transfer files to your Raspberry Pi:**
+   ```bash
+   # On your local machine, copy the project to your Pi
+   scp -r ytpi/ pi@your-pi-ip:/home/pi/
+   ```
 
-**Response:**
-- Single URL:
-  ```json
-  {"job_id": "<job_id>"}
-  ```
-- Multiple URLs:
-  ```json
-  {"job_ids": ["<job_id1>", "<job_id2>"]}
-  ```
+2. **SSH into your Raspberry Pi:**
+   ```bash
+   ssh pi@your-pi-ip
+   cd /home/pi/ytpi
+   ```
 
-### `/status` (GET)
-**Description:** Render a dashboard showing the status of all jobs.
+3. **Run the setup script:**
+   ```bash
+   ./setup_service.sh
+   ```
 
-### `/api/status` (GET)
-**Description:** Get the status of all jobs in JSON format.
+4. **Start the service:**
+   ```bash
+   sudo systemctl start ytpi
+   ```
 
-**Response:**
-```json
-{
-  "<job_id>": {
-    "url": "<video_url>",
-    "status": "queued|downloading|finished|error",
-    "error": "<error_message_if_any>"
-  }
-}
+## Service Management
+
+- **Start service:** `sudo systemctl start ytpi`
+- **Stop service:** `sudo systemctl stop ytpi`
+- **Restart service:** `sudo systemctl restart ytpi`
+- **Check status:** `sudo systemctl status ytpi`
+- **View logs:** `sudo journalctl -u ytpi -f`
+- **Disable auto-start:** `sudo systemctl disable ytpi`
+
+## API Usage
+
+### Download Single Video
+```bash
+curl -X POST http://your-pi-ip:7434/download \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://youtube.com/watch?v=VIDEO_ID"}'
+```
+
+### Download Multiple Videos
+```bash
+curl -X POST http://your-pi-ip:7434/download \
+  -H "Content-Type: application/json" \
+  -d '{"urls": ["https://youtube.com/watch?v=VIDEO1", "https://youtube.com/watch?v=VIDEO2"]}'
+```
+
+### Check Status
+- Web dashboard: `http://your-pi-ip:7434/status`
+- API endpoint: `http://your-pi-ip:7434/api/status`
+
+## Local Development
+
+1. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Run the app:**
+   ```bash
+   python app.py
+   ```
+
+The app will be available at `http://localhost:7434`
+
+## Security
+
+This service only accepts connections from local network addresses:
+- 127.x.x.x (localhost)
+- 192.168.x.x (private networks)
+- 10.x.x.x (private networks)
+- 172.16-31.x.x (private networks)
+
+## File Structure
+
+- `app.py` - Main Flask application
+- `requirements.txt` - Python dependencies
+- `ytpi.service` - Systemd service file
+- `setup_service.sh` - Installation script for Raspberry Pi
+- `templates/dashboard.html` - Web dashboard
+- `downloads/` - Downloaded videos directory
 ```
 
 ## Installation

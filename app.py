@@ -27,8 +27,16 @@ def worker():
         job = jobs[job_id]
         job['status'] = 'downloading'
         try:
-            # call yt-dlp; adjust output path as needed
-            cmd = ['yt-dlp', '-t', 'mp4', '-P', './downloads', '--embed-metadata', '-o', '%(title)s.%(ext)s', job['url']]
+            # Check if URL is a playlist
+            if 'playlist?list=' in job['url']:
+                # Playlist command - download all videos in playlist with organized output
+                cmd = ['yt-dlp', '-t', 'mp4', '-P', './downloads', '--embed-metadata', 
+                       '-o', '%(playlist)s/%(playlist_index)s - %(title)s.%(ext)s', job['url']]
+            else:
+                # Single video command
+                cmd = ['yt-dlp', '-t', 'mp4', '-P', './downloads', '--embed-metadata', 
+                       '-o', '%(title)s.%(ext)s', job['url']]
+            
             proc = subprocess.run(cmd, capture_output=True, text=True)
             if proc.returncode == 0:
                 job['status'] = 'finished'
