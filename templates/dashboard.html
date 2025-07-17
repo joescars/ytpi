@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Download Dashboard</title>
+  <style>
+    body { font-family: sans-serif; margin: 2em; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 0.5em; border: 1px solid #ccc; }
+    th { background: #f0f0f0; }
+    .error { color: red; }
+  </style>
+</head>
+<body>
+  <h1>Download Jobs</h1>
+  <table>
+    <tr>
+      <th>Job ID</th>
+      <th>URL</th>
+      <th>Status</th>
+      <th>Error</th>
+    </tr>
+    {% for jid, info in jobs.items() %}
+    <tr>
+      <td>{{ jid }}</td>
+      <td><a href="{{ info.url }}" target="_blank">{{ info.url }}</a></td>
+      <td>{{ info.status }}</td>
+      <td class="error">{{ info.get('error', '') }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p>Refresh the page to see updates.</p>
+</body>
+</html>

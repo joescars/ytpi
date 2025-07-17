@@ -1,0 +1,20 @@
+#single URL example
+POST /download HTTP/1.1
+Host: localhost:7434
+Content-Type: application/json
+
+{
+  "url": "https://youtu.be/AQ0P7R9CfCY?si=bK06gTul-0nilOmB"
+}
+
+### Single URL Example
+
+# multiple URLs example
+POST /download HTTP/1.1
+Host: localhost:7434
+Content-Type: application/json
+
+{
+  "urls": ["https://youtu.be/nIojG_mu0Cw?si=UPvM1UAkgnfhSlwX",
+            "https://youtu.be/SNjAR04st_U?si=q3do8hEwkiQNlTJm"]
+}
