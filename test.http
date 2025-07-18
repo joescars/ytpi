@@ -20,3 +20,14 @@ Content-Type: application/json
             "https://www.youtube.com/playlist?list=PL6tW9BrhiPTCDteflzehKS6Cn3a79-iCs"
           ]
 }
+
+###
+
+#single URL example
+POST /download HTTP/1.1
+Host: pi.local:7434
+Content-Type: application/json
+
+{
+  "url": "https://youtu.be/AQ0P7R9CfCY?si=bK06gTul-0nilOmB"
+}

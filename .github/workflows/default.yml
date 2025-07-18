@@ -1,0 +1,33 @@
+# testing runner on new server
+# 
+name: ytpi-workflow
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      
+      - name: Copy files to folder
+        run: |
+          cp -r ${{github.workspace}}/* /home/pi/ytpi
+      
+      - name: Install dependencies
+        run: |
+          cd /home/pi/ytpi
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Restart Service
+        run: |
+          sudo systemctl restart ytpi.service
+          sleep 5
+          sudo systemctl status ytpi.service
+
+
