@@ -16,7 +16,7 @@ Content-Type: application/json
 
 {
   "urls": [
-            "https://www.youtube.com/playlist?list=PLrLEqwuz-mRKxFJJWulYDvl-gt61oKxf0",
+            "https://www.youtube.com/playlist?list=PLXmi76euGSyytrWNbCUS609N9E140tXxE",
             "https://www.youtube.com/playlist?list=PL6tW9BrhiPTCDteflzehKS6Cn3a79-iCs"
           ]
 }
@@ -25,9 +25,9 @@ Content-Type: application/json
 
 #single URL example
 POST /download HTTP/1.1
-Host: pi.local:7434
+Host: raspberrypi:7434
 Content-Type: application/json
 
 {
-  "url": "https://youtu.be/AQ0P7R9CfCY?si=bK06gTul-0nilOmB"
+  "url": "https://www.youtube.com/playlist?list=PLXmi76euGSyytrWNbCUS609N9E140tXxE"
 }

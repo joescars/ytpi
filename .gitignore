@@ -2,3 +2,4 @@ downloads/
 # Ignore all files in the downloads directory
 .venv/
 # Ignore virtual environment directory
+.DS_Store

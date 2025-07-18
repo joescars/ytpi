@@ -13,6 +13,11 @@
 </head>
 <body>
   <h1>Download Job Status</h1>
+  <a href="/" style="margin-bottom: 20px; display: inline-block;">Back to Home</a>
+  
+  {% if not jobs %}
+    <p>No download jobs found.</p>
+  {% endif %}
   <table>
     <tr>
       <th>Job ID</th>
