@@ -27,14 +27,17 @@ def worker():
         job = jobs[job_id]
         job['status'] = 'downloading'
         try:
+            category = job.get('category') or ''
+            category_folder = f"./downloads/{category}" if category else "./downloads"
+            os.makedirs(category_folder, exist_ok=True)
             # Check if URL is a playlist
             if 'playlist?list=' in job['url']:
                 # Playlist command - download all videos in playlist with organized output
-                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-t', 'mp4', '-P', './downloads', '--embed-metadata',
+                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-t', 'mp4', '-P', category_folder, '--embed-metadata',
                        '-o', '%(playlist)s/%(playlist_index)s - %(title)s.%(ext)s', job['url']]
             else:
                 # Single video command
-                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-t', 'mp4', '-P', './downloads', '--embed-metadata',
+                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-t', 'mp4', '-P', category_folder, '--embed-metadata',
                        '-o', '%(title)s.%(ext)s', job['url']]
             
             proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -58,6 +61,7 @@ def enqueue_download():
     
     # Support both single URL and array of URLs
     urls_input = data.get('url') or data.get('urls')
+    category = data.get('category', '').strip() if data.get('category') else ''
     if not urls_input:
         return jsonify({'error': 'Missing url or urls'}), 400
     
@@ -75,7 +79,7 @@ def enqueue_download():
     job_ids = []
     for url in urls:
         job_id = str(uuid.uuid4())
-        jobs[job_id] = {'url': url, 'status': 'queued'}
+        jobs[job_id] = {'url': url, 'status': 'queued', 'category': category}
         download_queue.put(job_id)
         job_ids.append(job_id)
     

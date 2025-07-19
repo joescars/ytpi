@@ -9,7 +9,7 @@
         .container { max-width: 400px; margin: 60px auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); padding: 32px; }
         h1 { text-align: center; font-size: 2em; margin-bottom: 24px; }
         form { display: flex; flex-direction: column; gap: 16px; }
-        input[type="text"] { padding: 10px; font-size: 1em; border: 1px solid #ccc; border-radius: 4px; }
+        input[type="text"], select { padding: 10px; font-size: 1em; border: 1px solid #ccc; border-radius: 4px; }
         button { padding: 10px; font-size: 1em; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
         button:hover { background: #0056b3; }
         .result { margin-top: 20px; text-align: center; }
@@ -22,6 +22,15 @@
         <h1>ytpi Downloader</h1>
         <form id="download-form">
             <input type="text" id="url" name="url" placeholder="Enter video or playlist URL" required>
+            <select id="category" name="category" required>
+                <option value="">Select Category</option>
+                <option value="Music Videos">Music Videos</option>
+                <option value="Education">Education</option>
+                <option value="Bible Studies">Bible Studies</option>
+                <option value="News">News</option>
+                <option value="Sports">Sports</option>
+                <option value="Other">Other</option>
+            </select>
             <button type="submit">Download</button>
         </form>
         <div class="result" id="result"></div>
@@ -31,6 +40,7 @@
         document.getElementById('download-form').addEventListener('submit', async function(e) {
             e.preventDefault();
             const url = document.getElementById('url').value.trim();
+            const category = document.getElementById('category').value;
             const resultDiv = document.getElementById('result');
             resultDiv.textContent = '';
             if (!url) {
@@ -38,11 +48,16 @@
                 resultDiv.className = 'result error';
                 return;
             }
+            if (!category) {
+                resultDiv.textContent = 'Please select a category.';
+                resultDiv.className = 'result error';
+                return;
+            }
             try {
                 const res = await fetch('/download', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url })
+                    body: JSON.stringify({ url, category })
                 });
                 const data = await res.json();
                 if (res.ok) {
