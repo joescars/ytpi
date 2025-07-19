@@ -26,26 +26,30 @@ def worker():
         job_id = download_queue.get()
         job = jobs[job_id]
         job['status'] = 'downloading'
+        job['output'] = ''
         try:
             category = job.get('category') or ''
             category_folder = f"./downloads/{category}" if category else "./downloads"
             os.makedirs(category_folder, exist_ok=True)
             # Check if URL is a playlist
             if 'playlist?list=' in job['url']:
-                # Playlist command - download all videos in playlist with organized output
                 cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-t', 'mp4', '-P', category_folder, '--embed-metadata',
                        '-o', '%(playlist)s/%(playlist_index)s - %(title)s.%(ext)s', job['url']]
             else:
-                # Single video command
                 cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-t', 'mp4', '-P', category_folder, '--embed-metadata',
                        '-o', '%(title)s.%(ext)s', job['url']]
-            
-            proc = subprocess.run(cmd, capture_output=True, text=True)
+            # Use subprocess.Popen for live output
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            output_lines = []
+            for line in proc.stdout:
+                output_lines.append(line)
+                job['output'] = ''.join(output_lines)[-8000:]  # Keep last 8k chars
+            proc.wait()
             if proc.returncode == 0:
                 job['status'] = 'finished'
             else:
                 job['status'] = 'error'
-                job['error'] = proc.stderr
+                job['error'] = job['output'][-1000:]  # Show last 1k chars as error
         except Exception as e:
             job['status'] = 'error'
             job['error'] = str(e)
@@ -96,6 +100,13 @@ def status():
 @app.route('/api/status', methods=['GET'])
 def api_status():
     return jsonify(jobs)
+
+@app.route('/job_output/<job_id>')
+def job_output(job_id):
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+    return jsonify({'output': job.get('output', '')})
 
 @app.route('/')
 def home():
