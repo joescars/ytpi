@@ -10,7 +10,7 @@ download_queue = queue.Queue()
 jobs = {}
 
 # Allowed LAN prefixes
-ALLOWED_PREFIXES = ("127.", "192.168.", "10.", "172.")
+ALLOWED_PREFIXES = ("157.", "127.", "192.168.", "10.", "172.")
 
 def is_local(addr):
     return any(addr.startswith(pref) for pref in ALLOWED_PREFIXES)
