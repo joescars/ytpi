@@ -4,87 +4,88 @@
   <meta charset="utf-8">
   <title>Download Dashboard</title>
   <style>
-    body { font-family: sans-serif; margin: 2em; }
-    table { width: 100%; border-collapse: collapse; }
+    body { font-family: sans-serif; margin: 0; padding: 0; background: #f7f7f7; }
+    .main-container { display: flex; min-height: 100vh; }
+    .left-panel { flex: 2; padding: 2em; }
+    .right-panel { flex: 2; background: #fff; border-left: 1px solid #ddd; padding: 2em 1em; min-width: 450px; box-shadow: -2px 0 8px rgba(0,0,0,0.03); }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
     th, td { padding: 0.5em; border: 1px solid #ccc; }
     th { background: #f0f0f0; }
     .error { color: red; }
-    .modal {
-      display: none; position: fixed; z-index: 10; left: 0; top: 0; width: 100vw; height: 100vh;
-      background: rgba(0,0,0,0.4); align-items: center; justify-content: center;
+    .job-link { cursor: pointer; color: #007bff; text-decoration: underline; }
+    .job-link.active { font-weight: bold; color: #0056b3; }
+    pre { background: #222; color: #eee; padding: 1em; border-radius: 6px; overflow-x: auto; max-height: 60vh; white-space: pre-wrap; word-break: break-word; }
+    @media (max-width: 900px) {
+      .main-container { flex-direction: column; }
+      .right-panel { min-width: unset; border-left: none; border-top: 1px solid #ddd; }
     }
-    .modal-content {
-      background: #fff; padding: 20px; border-radius: 8px; max-width: 700px; width: 90vw; max-height: 80vh; overflow: auto;
-    }
-    .close { float: right; font-size: 1.5em; cursor: pointer; }
-    pre { background: #222; color: #eee; padding: 1em; border-radius: 6px; overflow-x: auto; max-height: 60vh; }
   </style>
 </head>
 <body>
-  <h1>Download Job Status</h1>
-  <a href="/" style="margin-bottom: 20px; display: inline-block;">Back to Home</a>
-  {% if not jobs %}
-    <p>No download jobs found.</p>
-  {% endif %}
-  <table>
-    <tr>
-      <th>Job ID</th>
-      <th>URL</th>
-      <th>Status</th>
-      <th>Error</th>
-    </tr>
-    {% for jid, info in jobs.items() %}
-    <tr>
-      <td><a href="#" class="job-link" data-jobid="{{ jid }}">{{ jid }}</a></td>
-      <td><a href="{{ info.url }}" target="_blank">{{ info.url }}</a></td>
-      <td>{{ info.status }}</td>
-      <td class="error">{{ info.get('error', '') }}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  <p>Click a Job ID to view live output. Refresh the page to see updates.</p>
-
-  <div class="modal" id="output-modal">
-    <div class="modal-content">
-      <span class="close" id="close-modal">&times;</span>
-      <h2>Job Output</h2>
-      <pre id="job-output">Loading...</pre>
+  <div class="main-container">
+    <div class="left-panel">
+      <h1>Download Job Status</h1>
+      <a href="/" style="margin-bottom: 20px; display: inline-block;">Back to Home</a>
+      {% if not jobs %}
+        <p>No download jobs found.</p>
+      {% endif %}
+      <table>
+        <tr>
+          <th>Job ID</th>
+          <th>URL</th>
+          <th>Status</th>
+          <th>Error</th>
+        </tr>
+        {% for jid, info in jobs.items() %}
+        <tr>
+          <td><span class="job-link" data-jobid="{{ jid }}">{{ jid[:8] }}</span></td>
+          <td><a href="{{ info.url }}" target="_blank">{{ info.url }}</a></td>
+          <td>{{ info.status }}</td>
+          <td class="error">{{ info.get('error', '') }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      <p>Click a Job ID to view live output. Refresh the page to see updates.</p>
+    </div>
+    <div class="right-panel">
+      <h2>Live Job Output</h2>
+      <div id="output-jobid" style="font-size:0.95em; color:#888; margin-bottom:0.5em;"></div>
+      <pre id="job-output">Select a job to view output.</pre>
     </div>
   </div>
   <script>
-    const modal = document.getElementById('output-modal');
-    const closeModal = document.getElementById('close-modal');
     const outputPre = document.getElementById('job-output');
+    const outputJobId = document.getElementById('output-jobid');
     let pollInterval = null;
-    function showModal(jobId) {
-      modal.style.display = 'flex';
+    let activeJobId = null;
+    function showJobOutput(jobId) {
+      activeJobId = jobId;
+      outputJobId.textContent = 'Job ID: ' + jobId;
       outputPre.textContent = 'Loading...';
+      document.querySelectorAll('.job-link').forEach(link => {
+        link.classList.toggle('active', link.dataset.jobid === jobId);
+      });
       fetchOutput(jobId);
-      pollInterval = setInterval(() => fetchOutput(jobId), 2000);
-    }
-    function hideModal() {
-      modal.style.display = 'none';
-      outputPre.textContent = '';
       if (pollInterval) clearInterval(pollInterval);
+      pollInterval = setInterval(() => fetchOutput(jobId), 2000);
     }
     function fetchOutput(jobId) {
       fetch(`/job_output/${jobId}`)
         .then(r => r.json())
         .then(data => {
           outputPre.textContent = data.output || '(No output yet)';
-          // Auto-scroll to bottom
           outputPre.scrollTop = outputPre.scrollHeight;
         });
     }
     document.querySelectorAll('.job-link').forEach(link => {
-      link.addEventListener('click', function(e) {
-        e.preventDefault();
-        showModal(this.dataset.jobid);
+      link.addEventListener('click', function() {
+        showJobOutput(this.dataset.jobid);
       });
     });
-    closeModal.onclick = hideModal;
-    window.onclick = function(event) {
-      if (event.target == modal) hideModal();
+    // Optionally, auto-select the first job if any
+    window.onload = function() {
+      const first = document.querySelector('.job-link');
+      if (first) first.click();
     };
   </script>
 </body>
