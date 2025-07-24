@@ -3,7 +3,7 @@ import uuid
 import subprocess
 import os
 import queue
-from flask import Flask, request, jsonify, render_template, abort
+from flask import Flask, request, jsonify, render_template, abort, redirect, url_for
 
 app = Flask(__name__)
 download_queue = queue.Queue()
@@ -61,32 +61,43 @@ threading.Thread(target=worker, daemon=True).start()
 
 @app.route('/download', methods=['POST'])
 def enqueue_download():
-    data = request.get_json(force=True)
-    
-    # Support both single URL and array of URLs
-    urls_input = data.get('url') or data.get('urls')
-    category = data.get('category', '').strip() if data.get('category') else ''
+    # Support both JSON and form submissions
+    if request.is_json:
+        data = request.get_json(force=True)
+        urls_input = data.get('url') or data.get('urls')
+        category = data.get('category', '').strip() if data.get('category') else ''
+    else:
+        urls_input = request.form.get('url') or request.form.get('urls')
+        category = request.form.get('category', '').strip() if request.form.get('category') else ''
     if not urls_input:
-        return jsonify({'error': 'Missing url or urls'}), 400
-    
+        if request.is_json:
+            return jsonify({'error': 'Missing url or urls'}), 400
+        else:
+            return render_template('index.html', error='Missing url or urls'), 400
     # Normalize to list
     if isinstance(urls_input, str):
         urls = [urls_input.strip()]
     elif isinstance(urls_input, list):
         urls = [url.strip() for url in urls_input if url.strip()]
     else:
-        return jsonify({'error': 'url must be a string or array of strings'}), 400
-    
+        if request.is_json:
+            return jsonify({'error': 'url must be a string or array of strings'}), 400
+        else:
+            return render_template('index.html', error='url must be a string or array of strings'), 400
     if not urls:
-        return jsonify({'error': 'No valid URLs provided'}), 400
-    
+        if request.is_json:
+            return jsonify({'error': 'No valid URLs provided'}), 400
+        else:
+            return render_template('index.html', error='No valid URLs provided'), 400
     job_ids = []
     for url in urls:
         job_id = str(uuid.uuid4())
         jobs[job_id] = {'url': url, 'status': 'queued', 'category': category}
         download_queue.put(job_id)
         job_ids.append(job_id)
-    
+    # Redirect to dashboard for form submissions
+    if not request.is_json:
+        return redirect(url_for('status'))
     # Return single job_id for backward compatibility, or array for multiple URLs
     if len(job_ids) == 1:
         return jsonify({'job_id': job_ids[0]}), 202
