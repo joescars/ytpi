@@ -106,7 +106,20 @@ def enqueue_download():
 
 @app.route('/status', methods=['GET'])
 def status():
-    return render_template('dashboard.html', jobs=jobs)
+    # Find the default job to show (active or most recent)
+    default_job_id = None
+    if jobs:
+        # First try to find an active (downloading/queued) job
+        for job_id, job in jobs.items():
+            if job['status'] in ['downloading', 'queued']:
+                default_job_id = job_id
+                break
+        
+        # If no active job, get the most recent one (last added)
+        if not default_job_id:
+            default_job_id = list(jobs.keys())[-1]
+    
+    return render_template('dashboard.html', jobs=jobs, default_job_id=default_job_id)
 
 @app.route('/api/status', methods=['GET'])
 def api_status():

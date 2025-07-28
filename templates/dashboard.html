@@ -93,10 +93,17 @@
         showJobOutput(this.dataset.jobid);
       });
     });
-    // Optionally, auto-select the first job if any
+    // Auto-select the default job (active or most recent)
     window.onload = function() {
-      const first = document.querySelector('.job-link');
-      if (first) first.click();
+      {% if default_job_id %}
+        const defaultLink = document.querySelector('.job-link[data-jobid="{{ default_job_id }}"]');
+        if (defaultLink) {
+          defaultLink.click();
+        }
+      {% else %}
+        const first = document.querySelector('.job-link');
+        if (first) first.click();
+      {% endif %}
     };
   </script>
 </body>
