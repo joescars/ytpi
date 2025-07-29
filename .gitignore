@@ -3,4 +3,6 @@ downloads/
 .venv/
 venv/
 # Ignore virtual environment directory
+__pycache__/
+# Ignore Python compiled files
 .DS_Store
