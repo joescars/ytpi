@@ -6,18 +6,91 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
-    body { background: #f7f7f7; }
+    :root {
+      --bg-color: #f7f7f7;
+      --card-bg: #ffffff;
+      --panel-bg: #ffffff;
+      --text-color: #000000;
+      --border-color: #ddd;
+      --table-header-bg: #f0f0f0;
+      --pre-bg: #222;
+      --pre-text: #eee;
+      --shadow: rgba(0,0,0,0.03);
+    }
+    
+    [data-theme="dark"] {
+      --bg-color: #1a1a1a;
+      --card-bg: #2d2d2d;
+      --panel-bg: #2d2d2d;
+      --text-color: #ffffff;
+      --border-color: #404040;
+      --table-header-bg: #404040;
+      --pre-bg: #1a1a1a;
+      --pre-text: #eee;
+      --shadow: rgba(0,0,0,0.2);
+    }
+    
+    body { 
+      background: var(--bg-color); 
+      color: var(--text-color);
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
     .main-container { display: flex; min-height: 100vh; }
     .left-panel { flex: 2; padding: 2em; }
-    .right-panel { flex: 2; background: #fff; border-left: 1px solid #ddd; padding: 2em 1em; min-width: 450px; box-shadow: -2px 0 8px rgba(0,0,0,0.03); }
-    .table thead th { background: #f0f0f0; }
+    .right-panel { 
+      flex: 2; 
+      background: var(--panel-bg); 
+      border-left: 1px solid var(--border-color); 
+      padding: 2em 1em; 
+      min-width: 450px; 
+      box-shadow: -2px 0 8px var(--shadow);
+      transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+    .table { 
+      color: var(--text-color);
+      transition: color 0.3s ease;
+    }
+    .table thead th { 
+      background: var(--table-header-bg); 
+      color: var(--text-color);
+      border-color: var(--border-color);
+      transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+    }
+    .table td, .table th {
+      border-color: var(--border-color);
+      transition: border-color 0.3s ease;
+    }
     .job-link { cursor: pointer; color: #0d6efd; text-decoration: underline; }
     .job-link.active { font-weight: bold; color: #0a58ca; }
-    pre { background: #222; color: #eee; padding: 1em; border-radius: 6px; overflow-x: auto; max-height: 60vh; white-space: pre-wrap; word-break: break-word; }
+    pre { 
+      background: var(--pre-bg); 
+      color: var(--pre-text); 
+      padding: 1em; 
+      border-radius: 6px; 
+      overflow-x: auto; 
+      max-height: 60vh; 
+      white-space: pre-wrap; 
+      word-break: break-word;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
     .error { color: #dc3545; }
+    .theme-toggle {
+      background: none;
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #ffffff;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.25rem;
+      font-size: 0.875rem;
+      transition: all 0.3s ease;
+    }
+    .theme-toggle:hover {
+      background: rgba(255,255,255,0.1);
+      border-color: rgba(255,255,255,0.3);
+      color: #ffffff;
+    }
     @media (max-width: 900px) {
       .main-container { flex-direction: column; }
-      .right-panel { min-width: unset; border-left: none; border-top: 1px solid #ddd; }
+      .right-panel { min-width: unset; border-left: none; border-top: 1px solid var(--border-color); }
     }
   </style>
 </head>
@@ -25,6 +98,9 @@
   <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
     <div class="container-fluid">
       <a class="navbar-brand" href="/">ytpi Downloader</a>
+      <button class="theme-toggle" onclick="toggleTheme()" id="themeToggle">
+        🌙 Dark
+      </button>
     </div>
   </nav>
   <div class="container-fluid main-container">
@@ -65,6 +141,39 @@
   </div>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
   <script>
+    // Theme management
+    function getTheme() {
+      return localStorage.getItem('theme') || 'light';
+    }
+    
+    function setTheme(theme) {
+      localStorage.setItem('theme', theme);
+      document.documentElement.setAttribute('data-theme', theme);
+      updateThemeToggle(theme);
+    }
+    
+    function updateThemeToggle(theme) {
+      const toggle = document.getElementById('themeToggle');
+      if (theme === 'dark') {
+        toggle.innerHTML = '☀️ Light';
+      } else {
+        toggle.innerHTML = '🌙 Dark';
+      }
+    }
+    
+    function toggleTheme() {
+      const currentTheme = getTheme();
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      setTheme(newTheme);
+    }
+    
+    // Apply theme on page load
+    document.addEventListener('DOMContentLoaded', function() {
+      const theme = getTheme();
+      setTheme(theme);
+    });
+
+    // Existing dashboard functionality
     const outputPre = document.getElementById('job-output');
     const outputJobId = document.getElementById('output-jobid');
     let pollInterval = null;
