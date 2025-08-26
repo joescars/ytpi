@@ -104,6 +104,24 @@ def enqueue_download():
     else:
         return jsonify({'job_ids': job_ids}), 202
 
+@app.route('/share', methods=['GET'])
+def share_via_get():
+    url = (request.args.get('url') or '').strip()
+    category = (request.args.get('category') or '').strip()
+    if not url:
+        return jsonify({'error': 'Missing url'}), 400
+
+    job_id = str(uuid.uuid4())
+    jobs[job_id] = {'url': url, 'status': 'queued', 'category': category}
+    download_queue.put(job_id)
+
+    redirect_pref = (request.args.get('redirect') or '1').lower()
+    if redirect_pref in ('1', 'true', 'yes'):
+        return redirect(url_for('status') + f'?job={job_id}')
+
+    # Friendly HTML response when not redirecting (useful inside Safari)
+    return render_template('shared_success.html', job_id=job_id), 202
+
 @app.route('/status', methods=['GET'])
 def status():
     # Find the default job to show (active or most recent)

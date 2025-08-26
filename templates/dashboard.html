@@ -93,17 +93,18 @@
         showJobOutput(this.dataset.jobid);
       });
     });
-    // Auto-select the default job (active or most recent)
+    function jobFromQuery() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('job');
+    }
     window.onload = function() {
-      {% if default_job_id %}
-        const defaultLink = document.querySelector('.job-link[data-jobid="{{ default_job_id }}"]');
-        if (defaultLink) {
-          defaultLink.click();
-        }
-      {% else %}
-        const first = document.querySelector('.job-link');
-        if (first) first.click();
-      {% endif %}
+      const wanted = jobFromQuery();
+      if (wanted) {
+        const link = document.querySelector(`.job-link[data-jobid="${wanted}"]`);
+        if (link) { link.click(); return; }
+      }
+      const first = document.querySelector('.job-link');
+      if (first) first.click();
     };
   </script>
 </body>
