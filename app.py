@@ -33,10 +33,10 @@ def worker():
             os.makedirs(category_folder, exist_ok=True)
             # Check if URL is a playlist
             if 'playlist?list=' in job['url']:
-                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-t', 'mp4', '-P', category_folder, '--embed-metadata',
+                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-P', category_folder, '--embed-metadata',
                        '-o', '%(playlist)s/%(playlist_index)s - %(title)s.%(ext)s', job['url']]
             else:
-                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-t', 'mp4', '-P', category_folder, '--embed-metadata',
+                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-P', category_folder, '--embed-metadata',
                        '-o', '%(title)s.%(ext)s', job['url']]
             # Use subprocess.Popen for live output
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
