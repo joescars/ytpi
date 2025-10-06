@@ -4,10 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/ytpi
-Environment=PATH=/home/pi/ytpi/venv/bin
-ExecStart=/home/pi/ytpi/venv/bin/python app.py
+User=joe
+WorkingDirectory=/home/joe/services/ytpi
+Environment=PATH=/home/joe/services/ytpi/venv/bin
+ExecStart=/home/joe/services/ytpi/venv/bin/python app.py
 Restart=always
 RestartSec=10
 
