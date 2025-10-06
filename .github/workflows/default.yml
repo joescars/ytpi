@@ -17,7 +17,7 @@ jobs:
       - name: Create Python virtual environment
         run: |
           cd /home/joe/services/ytpi
-          python3.11 -m venv venv
+          /usr/bin/python3.11 -m venv venv
 
       - name: be Copy files to folder
         run: |
