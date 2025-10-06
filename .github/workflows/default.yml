@@ -14,14 +14,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'  # Change to your desired version
-
-      - name: Create virtual environment
+      - name: Create Python virtual environment
         run: |
-          python -m venv venv
+          /usr/bin/python3.11 -m venv venv
           source venv/bin/activate
           python -m pip install --upgrade pip
 
