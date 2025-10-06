@@ -16,7 +16,7 @@ jobs:
       
       - name: Copy files to folder
         run: |
-          cp -r ${{github.workspace}}/* /home/pi/ytpi
+          cp -r ${{github.workspace}}/* /home/joe/services/ytpi
       
       - name: Install dependencies
         run: |
