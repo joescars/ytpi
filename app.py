@@ -28,8 +28,8 @@ def worker():
         job['status'] = 'downloading'
         job['output'] = ''
         try:
-            # category = job.get('category') or ''
-            category = '' # temp until folders resolved
+            category = job.get('category') or ''
+            # category = '' # temp until folders resolved
             category_folder = f"./downloads/{category}" if category else "./downloads"
             os.makedirs(category_folder, exist_ok=True)
             # Check if URL is a playlist
