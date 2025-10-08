@@ -16,16 +16,16 @@ jobs:
 
       - name: Create Python virtual environment
         run: |
-          cd /home/joe/services/ytpi
+          cd /home/runneruser/services/ytpi
           /usr/bin/python3.11 -m venv venv
 
       - name: be Copy files to folder
         run: |
-          cp -r ${{github.workspace}}/* /home/joe/services/ytpi
+          cp -r ${{github.workspace}}/* /home/runneruser/services/ytpi
       
       - name: Install dependencies
         run: |
-          cd /home/joe/services/ytpi
+          cd /home/runneruser/services/ytpi
           source venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
