@@ -5,40 +5,41 @@
 
 set -e
 
-echo "Setting up ytpi service on Raspberry Pi..."
+echo "Setting up ytpi service on Raspberry MiniPC..."
 
 # Create app directory
-YTPI_DIR="/home/pi/ytpi"
-mkdir -p "$YTPI_DIR"
-mkdir -p "$YTPI_DIR/downloads"
+YTPI_DIR="/home/runneruser/services/ytpi"
+# mkdir -p "$YTPI_DIR"
+# mkdir -p "$YTPI_DIR/downloads"
 
-# Copy files (assuming you're running this from the ytpi directory)
-cp app.py "$YTPI_DIR/"
-cp requirements.txt "$YTPI_DIR/"
-cp -r templates "$YTPI_DIR/" 2>/dev/null || echo "No templates directory found"
+# # Copy files (assuming you're running this from the ytpi directory)
+# cp app.py "$YTPI_DIR/"
+# cp requirements.txt "$YTPI_DIR/"
+# cp -r templates "$YTPI_DIR/" 2>/dev/null || echo "No templates directory found"
 
-# Create virtual environment
-echo "Creating virtual environment..."
-python3 -m venv "$YTPI_DIR/venv"
-source "$YTPI_DIR/venv/bin/activate"
+# # Create virtual environment
+# echo "Creating virtual environment..."
+# python3.11 -m venv "$YTPI_DIR/venv"
+# source "$YTPI_DIR/venv/bin/activate"
 
-# Install Python dependencies
-echo "Installing Python dependencies..."
-pip install --upgrade pip
-pip install -r "$YTPI_DIR/requirements.txt"
+# # Install Python dependencies
+# echo "Installing Python dependencies..."
+# pip install --upgrade pip
+# pip install -r "$YTPI_DIR/requirements.txt"
 
-# Install yt-dlp
-echo "Installing yt-dlp..."
-pip install yt-dlp
+# # Install yt-dlp
+# echo "Installing yt-dlp..."
+# pip install yt-dlp
 
-# Make sure downloads directory exists and is writable
-chmod 755 "$YTPI_DIR/downloads"
+# # Make sure downloads directory exists and is writable
+# chmod 755 "$YTPI_DIR/downloads"
 
 # Copy service file and install it
 echo "Installing systemd service..."
 sudo cp ytpi.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable ytpi.service
+sudo systemctl start ytpi.service
 
 echo "Setup complete!"
 echo ""
