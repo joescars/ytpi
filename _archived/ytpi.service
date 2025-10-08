@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=runneruser
 WorkingDirectory=/home/runneruser/services/ytpi
-Environment=PATH=//home/runneruser/services/ytpi/venv/bin
+Environment=PATH=/home/runneruser/services/ytpi/venv/bin
 ExecStart=/home/runneruser/services/ytpi/venv/bin/python app.py
 Restart=always
 RestartSec=10
