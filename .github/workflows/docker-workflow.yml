@@ -16,7 +16,7 @@ jobs:
 
       - name: Copy files to folder
         run: |
-          cp -r ${{github.workspace}}/* ${{github.workspace}}/.* ${{env.APP_DIR}}
+          cp -r ${{github.workspace}}/* ${{github.workspace}}/.dockerignore ${{env.APP_DIR}}
 
       - name: Build and Run Docker Container
         run: |
