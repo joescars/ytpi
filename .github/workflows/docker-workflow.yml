@@ -14,9 +14,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: be Copy files to folder
+      - name: Copy files to folder
         run: |
-          cp -r ${{github.workspace}}/* ${{env.APP_DIR}}
+          cp -r ${{github.workspace}}/* ${{github.workspace}}/.* ${{env.APP_DIR}}
 
       - name: Build and Run Docker Container
         run: |
