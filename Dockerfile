@@ -14,7 +14,9 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Create non-root user (optional but recommended)
-RUN useradd -m appuser && mkdir -p /app/downloads && chown -R appuser:appuser /app
+RUN useradd -m appuser
+RUN mkdir -p /app/downloads && mkdir -p /app/downloads/Music-Videos && mkdir -p /app/downloads/YouTube
+RUN chown -R appuser:appuser /app
 
 # Copy application source
 COPY . .
@@ -26,6 +28,8 @@ EXPOSE 7434
 
 # Persist downloaded videos (bind or named volume recommended)
 VOLUME ["/app/downloads"]
+VOLUME ["/app/downloads/Music-Videos"]
+VOLUME ["/app/downloads/YouTube"]
 
 # Run the existing script directly (no code modifications)
 CMD ["python", "app.py"]

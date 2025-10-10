@@ -5,7 +5,13 @@ services:
     ports:
       - "7435:7434"
     volumes:
+    # - type: bind
+    #   source: /mediajf/dvol
+    #   target: /app/downloads
     - type: bind
-      source: /mediajf/dvol
-      target: /app/downloads
+      source: /mnt/usb0/samsung/media/YouTube
+      target: /app/downloads/YouTube
+    - type: bind
+      source: '/mnt/usb0/samsung/media/Music Videos'
+      target: /app/downloads/Music-Videos
     restart: unless-stopped
