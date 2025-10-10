@@ -21,7 +21,7 @@ jobs:
       - name: Build and Run Docker Container
         run: |
           cd ${{env.APP_DIR}}
-          docker-compose up --build -d
+          docker compose up -d --build
 
 
 
