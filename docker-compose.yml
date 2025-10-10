@@ -6,4 +6,5 @@ services:
       - "7435:7434"
     volumes:
       - ./downloads:/app/downloads
+      - /mediajf:/mediajf
     restart: unless-stopped
