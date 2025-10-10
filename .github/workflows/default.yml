@@ -2,11 +2,7 @@
 # 
 name: ytpi-workflow
 
-on:
-  push:
-    branches:
-      - main
-
+on: workflow_dispatch
 jobs:
   build:
     runs-on: self-hosted
