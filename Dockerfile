@@ -25,7 +25,7 @@ COPY . .
 EXPOSE 7434
 
 # Persist downloaded videos (bind or named volume recommended)
-VOLUME ["/app/downloads"]
+# VOLUME ["/app/downloads"]
 
 # Run the existing script directly (no code modifications)
 CMD ["python", "app.py"]
