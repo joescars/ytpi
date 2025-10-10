@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1
+FROM python:3.12-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Install system dependencies (ffmpeg required by yt-dlp for metadata/thumbnails)
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy requirements first for better layer caching
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Create non-root user (optional but recommended)
+RUN useradd -m appuser && mkdir -p /app/downloads && chown -R appuser:appuser /app
+
+# Copy application source
+COPY . .
+
+USER appuser
+
+# Expose the Flask port
+EXPOSE 7434
+
+# Persist downloaded videos (bind or named volume recommended)
+VOLUME ["/app/downloads"]
+
+# Run the existing script directly (no code modifications)
+CMD ["python", "app.py"]

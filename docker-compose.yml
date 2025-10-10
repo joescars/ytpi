@@ -1,0 +1,9 @@
+services:
+  ytpi:
+    build: .
+    container_name: ytpi
+    ports:
+      - "7435:7434"
+    volumes:
+      - ./downloads:/app/downloads
+    restart: unless-stopped

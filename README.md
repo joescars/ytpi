@@ -87,6 +87,55 @@ curl -X POST http://your-pi-ip:7434/download \
 
 The app will be available at `http://localhost:7434`
 
+## Containerization
+
+You can run this application in Docker without modifying `app.py`.
+
+### Build Image
+
+```powershell
+docker build -t ytpi:latest .
+```
+
+### Run Container (bind mount downloads for persistence)
+
+```powershell
+mkdir downloads 2>$null
+docker run --rm -p 7434:7434 -v "${PWD}/downloads:/app/downloads" ytpi:latest
+```
+
+Access at: `http://localhost:7434`
+
+### Using docker-compose
+
+```powershell
+docker compose up -d --build
+```
+
+### Production Notes
+
+- The image installs `ffmpeg` (needed by `yt-dlp`).
+- A volume at `/app/downloads` persists your files.
+- Multiple containers do not share the in-memory queue (`jobs`). For scaling, use an external queue (e.g., Redis) and refactor accordingly.
+- For a production WSGI server without changing code, you may add `waitress` to `requirements.txt` and change the container command to:
+
+   ```bash
+   waitress-serve --listen=0.0.0.0:7434 app:app
+   ```
+
+### Cleanup
+
+```powershell
+docker compose down
+```
+
+### Optional Enhancements (future)
+
+- Environment variable for allowed IP prefixes
+- Health endpoint (`/healthz`)
+- Structured logging
+- External persistence for job history
+
 ## Security
 
 This service only accepts connections from local network addresses:

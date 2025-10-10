@@ -1,0 +1,27 @@
+# testing runner on new server
+# 
+name: ytpi-docker-workflow
+
+on: workflow_dispatch
+
+env:
+  APP_DIR: /home/runneruser/services/ytpi-docker
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: be Copy files to folder
+        run: |
+          cp -r ${{github.workspace}}/* ${{env.APP_DIR}}
+
+      - name: Build and Run Docker Container
+        run: |
+          cd ${{env.APP_DIR}}
+          docker-compose up --build -d
+
+
+
