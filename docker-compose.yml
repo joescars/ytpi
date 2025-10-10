@@ -6,6 +6,6 @@ services:
       - "7435:7434"
     volumes:
     - type: bind
-    source: /mediajf
-    target: /app/downloads    
+      source: /mediajf
+      target: /app/downloads    
     restart: unless-stopped
