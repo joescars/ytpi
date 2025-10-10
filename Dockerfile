@@ -15,12 +15,12 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Create non-root user (optional but recommended)
-RUN useradd -m appuser && mkdir -p /app/downloads && chown -R appuser:appuser /app
+# RUN useradd -m appuser && mkdir -p /app/downloads && chown -R appuser:appuser /app
 
 # Copy application source
 COPY . .
 
-USER appuser
+# USER appuser
 
 # Expose the Flask port
 EXPOSE 7434
