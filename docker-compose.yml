@@ -5,5 +5,7 @@ services:
     ports:
       - "7435:7434"
     volumes:
-      - /mediajf:/app/downloads
+    - type: bind
+    source: /mediajf
+    target: /app/downloads    
     restart: unless-stopped
