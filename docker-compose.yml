@@ -2,6 +2,7 @@ services:
   ytpi:
     build: .
     container_name: ytpi
+    network_mode: "host"
     ports:
       - "7435:7434"
     volumes:
