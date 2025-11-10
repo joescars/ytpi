@@ -7,5 +7,5 @@ services:
       - "7435:7434"
     volumes:
       - /mnt/usb0/samsung/media/YouTube:/app/downloads/YouTube
-      - '/mnt/usb0/samsung/media/Music Videos':/app/downloads/Music-Videos
+      - "/mnt/usb0/samsung/media/Music Videos:/app/downloads/Music-Videos"
     restart: unless-stopped
