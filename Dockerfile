@@ -11,7 +11,9 @@ WORKDIR /app
 
 # Copy requirements first for better layer caching
 COPY requirements.txt ./
+RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade yt-dlp
 
 # Create non-root user (optional but recommended)
 RUN useradd -m appuser
