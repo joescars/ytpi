@@ -35,7 +35,7 @@ def worker():
             # Check if URL is a playlist
             if 'playlist?list=' in job['url']:
                 cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-P', category_folder, '--embed-metadata',
-                       '-o', '%(playlist)s/%(playlist_index)s - %(title)s.%(ext)s', job['url']]
+                       '-o', '%(playlist)s/%(title)s.%(ext)s', job['url']]
             else:
                 cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-P', category_folder, '--embed-metadata',
                        '-o', '%(title)s.%(ext)s', job['url']]
