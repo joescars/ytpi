@@ -23,7 +23,7 @@ def validate_quality(quality):
 
 def get_and_validate_quality(quality_input):
     """Extract, strip, and validate quality parameter from input."""
-    quality_str = (quality_input or '').strip() if quality_input else ''
+    quality_str = (quality_input or '').strip()
     return validate_quality(quality_str)
 
 def is_local(addr):
