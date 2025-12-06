@@ -21,6 +21,11 @@ def validate_quality(quality):
         return "max"
     return quality
 
+def get_and_validate_quality(quality_input):
+    """Extract, strip, and validate quality parameter from input."""
+    quality_str = (quality_input or '').strip() if quality_input else ''
+    return validate_quality(quality_str)
+
 def is_local(addr):
     return any(addr.startswith(pref) for pref in ALLOWED_PREFIXES)
 
@@ -48,7 +53,8 @@ def worker():
                 format_str = 'bestvideo+bestaudio/best'
             else:
                 # For specific heights like 720, 1080, 1440, 2160
-                format_str = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]'
+                # Falls back to best quality if specified height not available
+                format_str = f'bestvideo[height<={quality}]+bestaudio/best'
             
             # Check if URL is a playlist
             if 'playlist?list=' in job['url']:
@@ -85,11 +91,11 @@ def enqueue_download():
         data = request.get_json(force=True)
         urls_input = data.get('url') or data.get('urls')
         category = data.get('category', '').strip() if data.get('category') else ''
-        quality = validate_quality(data.get('quality', '').strip() if data.get('quality') else '')
+        quality = get_and_validate_quality(data.get('quality'))
     else:
         urls_input = request.form.get('url') or request.form.get('urls')
         category = request.form.get('category', '').strip() if request.form.get('category') else ''
-        quality = validate_quality(request.form.get('quality', '').strip() if request.form.get('quality') else '')
+        quality = get_and_validate_quality(request.form.get('quality'))
     if not urls_input:
         if request.is_json:
             return jsonify({'error': 'Missing url or urls'}), 400
@@ -129,7 +135,7 @@ def enqueue_download():
 def share_via_get():
     url = (request.args.get('url') or '').strip()
     category = (request.args.get('category') or '').strip()
-    quality = validate_quality((request.args.get('quality') or '').strip())
+    quality = get_and_validate_quality(request.args.get('quality'))
     if not url:
         return jsonify({'error': 'Missing url'}), 400
 
