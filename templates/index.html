@@ -38,6 +38,17 @@
                         <option value="YouTube">Other</option>
                     </select>
                 </div>
+                <div class="mb-3">
+                    <label for="quality" class="form-label">Video Quality</label>
+                    <select class="form-select" id="quality" name="quality">
+                        <option value="max">Max Quality (Default)</option>
+                        <option value="2160">2160p (4K)</option>
+                        <option value="1440">1440p (2K)</option>
+                        <option value="1080">1080p (Full HD)</option>
+                        <option value="720">720p (HD)</option>
+                        <option value="480">480p</option>
+                    </select>
+                </div>
                 <button type="submit" class="btn btn-primary w-100">Download</button>
             </form>
             {% if error %}

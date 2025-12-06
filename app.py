@@ -12,6 +12,20 @@ jobs = {}
 # Allowed LAN prefixes
 ALLOWED_PREFIXES = ("157.", "127.", "192.168.", "10.", "172.", "170.98.")
 
+# Allowed quality values
+ALLOWED_QUALITIES = {"max", "2160", "1440", "1080", "720", "480"}
+
+def validate_quality(quality):
+    """Validate and return quality parameter, defaulting to 'max' if invalid."""
+    if not quality or quality not in ALLOWED_QUALITIES:
+        return "max"
+    return quality
+
+def get_and_validate_quality(quality_input):
+    """Extract, strip, and validate quality parameter from input."""
+    quality_str = (quality_input or '').strip()
+    return validate_quality(quality_str)
+
 def is_local(addr):
     return any(addr.startswith(pref) for pref in ALLOWED_PREFIXES)
 
@@ -29,15 +43,25 @@ def worker():
         job['output'] = ''
         try:
             category = job.get('category') or ''
+            quality = validate_quality(job.get('quality') or '')
             # category = '' # temp until folders resolved
             category_folder = f"./downloads/{category}" if category else "./downloads"
             os.makedirs(category_folder, exist_ok=True)
+            
+            # Build format string based on quality selection (quality is validated)
+            if quality == 'max':
+                format_str = 'bestvideo+bestaudio/best'
+            else:
+                # For specific heights like 720, 1080, 1440, 2160
+                # Falls back to best quality if specified height not available
+                format_str = f'bestvideo[height<={quality}]+bestaudio/best'
+            
             # Check if URL is a playlist
             if 'playlist?list=' in job['url']:
-                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-P', category_folder, '--embed-metadata',
+                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-f', format_str, '-P', category_folder, '--embed-metadata',
                        '-o', '%(playlist)s/%(title)s.%(ext)s', job['url']]
             else:
-                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-P', category_folder, '--embed-metadata',
+                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-f', format_str, '-P', category_folder, '--embed-metadata',
                        '-o', '%(title)s.%(ext)s', job['url']]
             # Use subprocess.Popen for live output
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -67,9 +91,11 @@ def enqueue_download():
         data = request.get_json(force=True)
         urls_input = data.get('url') or data.get('urls')
         category = data.get('category', '').strip() if data.get('category') else ''
+        quality = get_and_validate_quality(data.get('quality'))
     else:
         urls_input = request.form.get('url') or request.form.get('urls')
         category = request.form.get('category', '').strip() if request.form.get('category') else ''
+        quality = get_and_validate_quality(request.form.get('quality'))
     if not urls_input:
         if request.is_json:
             return jsonify({'error': 'Missing url or urls'}), 400
@@ -93,7 +119,7 @@ def enqueue_download():
     job_ids = []
     for url in urls:
         job_id = str(uuid.uuid4())
-        jobs[job_id] = {'url': url, 'status': 'queued', 'category': category}
+        jobs[job_id] = {'url': url, 'status': 'queued', 'category': category, 'quality': quality}
         download_queue.put(job_id)
         job_ids.append(job_id)
     # Redirect to dashboard for form submissions
@@ -109,11 +135,12 @@ def enqueue_download():
 def share_via_get():
     url = (request.args.get('url') or '').strip()
     category = (request.args.get('category') or '').strip()
+    quality = get_and_validate_quality(request.args.get('quality'))
     if not url:
         return jsonify({'error': 'Missing url'}), 400
 
     job_id = str(uuid.uuid4())
-    jobs[job_id] = {'url': url, 'status': 'queued', 'category': category}
+    jobs[job_id] = {'url': url, 'status': 'queued', 'category': category, 'quality': quality}
     download_queue.put(job_id)
 
     redirect_pref = (request.args.get('redirect') or '1').lower()
