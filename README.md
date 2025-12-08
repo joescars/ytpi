@@ -53,12 +53,12 @@ A Flask-based web service for downloading YouTube videos using yt-dlp. Designed 
 ### Download Single Video
 
 ```bash
-# Basic download (max quality, no category)
+# Basic download (uses defaults: max quality, no category)
 curl -X POST http://your-pi-ip:7434/download \
   -H "Content-Type: application/json" \
   -d '{"url": "https://youtube.com/watch?v=VIDEO_ID"}'
 
-# With category and quality
+# With category organization and specific quality (1080p)
 curl -X POST http://your-pi-ip:7434/download \
   -H "Content-Type: application/json" \
   -d '{"url": "https://youtube.com/watch?v=VIDEO_ID", "category": "Music Videos", "quality": "1080"}'
@@ -238,13 +238,13 @@ This is the simplest setup that uses default settings (max quality, no category 
 
 If you want to organize downloads into categories (e.g., "Music Videos", "Tutorials", etc.):
 
-Follow the same steps as above, but in step 4, use this URL instead:
+Follow the same steps as above, but in step 4, use this URL format instead:
 ```
-http://YOUR_PI_IP:7434/share?url=SAFARI_WEB_PAGE_URL&category=YOUR_CATEGORY
+http://YOUR_PI_IP:7434/share?url=https://www.youtube.com/watch?v=VIDEO_ID&category=YOUR_CATEGORY
 ```
 Replace `YOUR_CATEGORY` with your desired folder name (e.g., `Music%20Videos` for "Music Videos").
 
-**Note:** Use `%20` for spaces in category names, or use hyphens like `Music-Videos`.
+**Note:** URL-encode special characters in category names - use `%20` for spaces, or use hyphens/underscores like `Music-Videos`. In the Shortcuts app, the Safari Web Page URL variable will be automatically URL-encoded.
 
 ### Advanced Options
 
@@ -272,11 +272,11 @@ If you prefer using the POST endpoint:
 - URL: `http://YOUR_PI_IP:7434/download`
 - Method: POST
 - Headers: `Content-Type: application/json`
-- Body: `{"url": "SAFARI_WEB_PAGE_URL"}`
+- Body: `{"url": "https://www.youtube.com/watch?v=VIDEO_ID"}`
 
 ### Important Notes
 
-- **Network Requirement:** Your iPhone/iPad must be on the same local network (LAN) as your ytpi server. The app only accepts connections from local network addresses for security.
+- **Network Requirement:** Your iPhone/iPad must be on the same local network (LAN) as your ytpi server. The app only accepts connections from local network addresses for security (127.x.x.x, 192.168.x.x, 10.x.x.x, 172.x.x.x ranges).
 - **Replace YOUR_PI_IP:** Make sure to replace `YOUR_PI_IP` with your actual server IP address (e.g., `192.168.1.100`)
 - **Default Settings:** When no category or quality is specified, videos are saved to the root downloads folder at max quality
 - **Works with Playlists:** You can share YouTube playlist URLs the same way - the entire playlist will be downloaded
