@@ -53,9 +53,15 @@ A Flask-based web service for downloading YouTube videos using yt-dlp. Designed 
 ### Download Single Video
 
 ```bash
+# Basic download (uses defaults: max quality, no category)
 curl -X POST http://your-pi-ip:7434/download \
   -H "Content-Type: application/json" \
   -d '{"url": "https://youtube.com/watch?v=VIDEO_ID"}'
+
+# With category organization and specific quality (1080p)
+curl -X POST http://your-pi-ip:7434/download \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://youtube.com/watch?v=VIDEO_ID", "category": "Music Videos", "quality": "1080"}'
 ```
 
 ### Download Multiple Videos
@@ -63,13 +69,23 @@ curl -X POST http://your-pi-ip:7434/download \
 ```bash
 curl -X POST http://your-pi-ip:7434/download \
   -H "Content-Type: application/json" \
-  -d '{"urls": ["https://youtube.com/watch?v=VIDEO1", "https://youtube.com/watch?v=VIDEO2"]}'
+  -d '{"urls": ["https://youtube.com/watch?v=VIDEO1", "https://youtube.com/watch?v=VIDEO2"], "quality": "720"}'
 ```
 
 ### Check Status
 
 - Web dashboard: `http://your-pi-ip:7434/status`
 - API endpoint: `http://your-pi-ip:7434/api/status`
+
+### Quality Options
+
+Valid quality values:
+- `max` - Best available quality (default)
+- `2160` - 4K (2160p)
+- `1440` - 2K (1440p)
+- `1080` - Full HD (1080p)
+- `720` - HD (720p)
+- `480` - Standard (480p)
 
 ## Local Development
 
@@ -193,52 +209,110 @@ This service only accepts connections from local network addresses:
 
 ## iOS Share Sheet Integration
 
-You can send the current Safari page directly to ytpi using an iOS Shortcut from the Share Sheet.
+You can easily download YouTube videos directly from Safari or any app on your iPhone/iPad by sharing the URL to ytpi. This integration uses iOS Shortcuts and works seamlessly with the Share Sheet.
 
-### Option A: Simple Redirect Flow
+### Quick Setup (Recommended)
 
-- Create a Shortcut in the Shortcuts app.
-- Actions:
-  1) Get Details of Safari Web Page → URL
-  2) URL → set to: `http://YOUR_PI_IP:7434/share?url={{Shortcut Input}}&category=Music%20Videos`
-  3) Open URLs
-- Use the Share Sheet → Send to ytpi.
-- The server queues the job and redirects to `http://YOUR_PI_IP:7434/status?job=<id>`.
+This is the simplest setup that uses default settings (max quality, no category organization):
 
-### Option B: In-Safari Confirmation Page
+1. **Open the Shortcuts app** on your iPhone/iPad
+2. **Create a new Shortcut** (tap the + button)
+3. **Name your shortcut** (e.g., "Download to ytpi" or "Save Video")
+4. **Add these actions:**
+   - Tap "Add Action" → Search for "Get Details of Safari Web Page"
+   - Select "URL" from the dropdown
+   - Tap "+" again → Search for "URL"
+   - In the URL field, enter: `http://YOUR_PI_IP:7434/share?url=`
+   - Tap after the `=` and select "Safari Web Page URL" from the Variables menu
+   - Tap "+" again → Search for "Open URLs"
+   - Select "URL" as the input
+5. **Configure sharing:**
+   - Tap the settings icon (⚙️) at the bottom of the shortcut
+   - Enable "Show in Share Sheet"
+   - Under "Share Sheet Types," enable "URLs" and "Safari Web Pages"
+6. **Save the shortcut**
 
-- Same as above, but use this URL so the app shows a small confirmation page and auto-redirects:
+**Usage:** When you're on a YouTube page in Safari (or any app), tap the Share button, scroll down to find your "Download to ytpi" shortcut, and tap it. The video will be queued for download at max quality in your downloads folder.
 
-  `http://YOUR_PI_IP:7434/share?url={{Shortcut Input}}&category=Music%20Videos&redirect=0`
+### Setup with Category Organization (Optional)
 
-### Using POST (optional)
+If you want to organize downloads into categories (e.g., "Music Videos", "Tutorials", etc.):
 
-- If you prefer JSON POST, you can call the existing endpoint:
-  - URL: `http://YOUR_PI_IP:7434/download`
-  - Method: POST
-  - Headers: `Content-Type: application/json`
-  - JSON: `{ "url": Shortcut Input, "category": "Music Videos" }`
+Follow the same steps as above, but in step 4, use this URL format instead:
+```
+http://YOUR_PI_IP:7434/share?url=https://www.youtube.com/watch?v=VIDEO_ID&category=YOUR_CATEGORY
+```
+Replace `YOUR_CATEGORY` with your desired folder name (e.g., `Music%20Videos` for "Music Videos").
 
-### Categories
+**Note:** URL-encode special characters in category names - use `%20` for spaces, or use hyphens/underscores like `Music-Videos`. In the Shortcuts app, the Safari Web Page URL variable will be automatically URL-encoded.
 
-- The `category` is optional. When provided, files are saved under `downloads/<category>/...`.
+### Advanced Options
 
-### Notes
+#### Option A: Auto-redirect to Dashboard
+The default behavior redirects you to the status dashboard after queuing the download:
+```
+http://YOUR_PI_IP:7434/share?url=SAFARI_WEB_PAGE_URL
+```
 
-- Your iPhone must be on the same LAN as the server (the app only allows local network clients).
-- If you want a bit more protection, consider using a shared token in the query string and validate it.
+#### Option B: Show Confirmation Page
+To see a simple confirmation page in Safari instead of redirecting:
+```
+http://YOUR_PI_IP:7434/share?url=SAFARI_WEB_PAGE_URL&redirect=0
+```
 
-## New Endpoints
+#### Option C: Specify Video Quality
+To download at a specific quality instead of max quality:
+```
+http://YOUR_PI_IP:7434/share?url=SAFARI_WEB_PAGE_URL&quality=1080
+```
+Valid quality values: `max`, `2160` (4K), `1440` (2K), `1080` (Full HD), `720` (HD), `480`
+
+#### Using POST Method (Advanced)
+If you prefer using the POST endpoint:
+- URL: `http://YOUR_PI_IP:7434/download`
+- Method: POST
+- Headers: `Content-Type: application/json`
+- Body: `{"url": "https://www.youtube.com/watch?v=VIDEO_ID"}`
+
+### Important Notes
+
+- **Network Requirement:** Your iPhone/iPad must be on the same local network (LAN) as your ytpi server. The app only accepts connections from local network addresses for security (127.x.x.x, 192.168.x.x, 10.x.x.x, 172.x.x.x ranges).
+- **Replace YOUR_PI_IP:** Make sure to replace `YOUR_PI_IP` with your actual server IP address (e.g., `192.168.1.100`)
+- **Default Settings:** When no category or quality is specified, videos are saved to the root downloads folder at max quality
+- **Works with Playlists:** You can share YouTube playlist URLs the same way - the entire playlist will be downloaded
+
+## API Endpoints
 
 ### GET /share
 
-Queue a single URL via query string. Useful for Shortcuts.
+Queue a single URL via query string. Optimized for iOS Shortcuts and Share Sheet integration.
 
-- Query params:
-  - `url` (required): The video or playlist URL
-  - `category` (optional): Subfolder name under `downloads`
-  - `redirect` (optional, default `1`): `1|true|yes` → redirect to dashboard, otherwise return a friendly page (202)
+**Query Parameters:**
+- `url` (required): The YouTube video or playlist URL
+- `category` (optional): Subfolder name under `downloads/`. If not specified, files are saved to the root downloads folder
+- `quality` (optional, default `max`): Video quality. Valid values: `max`, `2160`, `1440`, `1080`, `720`, `480`
+- `redirect` (optional, default `1`): Controls redirect behavior
+  - `1`, `true`, or `yes`: Redirects to the status dashboard
+  - `0`, `false`, or `no`: Shows a friendly confirmation page
 
-- Examples:
-  - `http://YOUR_PI_IP:7434/share?url=https://youtube.com/watch?v=abc123&category=Music%20Videos`
-  - `http://YOUR_PI_IP:7434/share?url=https://youtube.com/watch?v=abc123&redirect=0`
+**Examples:**
+```bash
+# Basic usage with defaults (max quality, no category)
+http://YOUR_PI_IP:7434/share?url=https://youtube.com/watch?v=abc123
+
+# With category organization
+http://YOUR_PI_IP:7434/share?url=https://youtube.com/watch?v=abc123&category=Music%20Videos
+
+# With specific quality
+http://YOUR_PI_IP:7434/share?url=https://youtube.com/watch?v=abc123&quality=1080
+
+# Show confirmation page instead of redirecting
+http://YOUR_PI_IP:7434/share?url=https://youtube.com/watch?v=abc123&redirect=0
+
+# All options combined
+http://YOUR_PI_IP:7434/share?url=https://youtube.com/watch?v=abc123&category=Tutorials&quality=720&redirect=0
+```
+
+**Response:**
+- With redirect: HTTP 302 redirect to `/status?job=<job_id>`
+- Without redirect: HTTP 202 with HTML confirmation page
