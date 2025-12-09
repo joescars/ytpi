@@ -56,13 +56,16 @@ def worker():
                 # Falls back to best quality if specified height not available
                 format_str = f'bestvideo[height<={quality}]+bestaudio/best'
             
+            # Subtitle flags for downloading English subtitles
+            subtitle_flags = ['--write-auto-subs', '--sub-langs', 'en', '--convert-subs', 'srt']
+            
             # Check if URL is a playlist
             if 'playlist?list=' in job['url']:
-                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-f', format_str, '-P', category_folder, '--embed-metadata',
-                       '-o', '%(playlist)s/%(title)s.%(ext)s', job['url']]
+                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-f', format_str, '-P', category_folder, '--embed-metadata'] \
+                      + subtitle_flags + ['-o', '%(playlist)s/%(title)s.%(ext)s', job['url']]
             else:
-                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-f', format_str, '-P', category_folder, '--embed-metadata',
-                       '-o', '%(title)s.%(ext)s', job['url']]
+                cmd = ['yt-dlp', '--ffmpeg-location', '/usr/bin/ffmpeg', '-f', format_str, '-P', category_folder, '--embed-metadata'] \
+                      + subtitle_flags + ['-o', '%(title)s.%(ext)s', job['url']]
             # Use subprocess.Popen for live output
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             output_lines = []
