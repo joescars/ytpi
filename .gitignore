@@ -4,3 +4,25 @@ downloads/
 venv/
 # Ignore virtual environment directory
 .DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/settings.json.local
+.idea/
+
+# Environment files
+.env
+.env.local

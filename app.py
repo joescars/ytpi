@@ -181,6 +181,20 @@ def job_output(job_id):
         return jsonify({'error': 'Job not found'}), 404
     return jsonify({'output': job.get('output', '')})
 
+@app.route('/clear-finished', methods=['POST'])
+def clear_finished():
+    """Clear all finished and error jobs from the jobs dictionary."""
+    finished_jobs = [job_id for job_id, job in jobs.items() 
+                    if job.get('status') in ['finished', 'error']]
+    
+    for job_id in finished_jobs:
+        del jobs[job_id]
+    
+    return jsonify({
+        'status': 'success', 
+        'message': f'Cleared {len(finished_jobs)} finished job(s)'
+    })
+
 @app.route('/')
 def home():
     return render_template('index.html')
