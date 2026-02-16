@@ -94,11 +94,25 @@ def enqueue_download():
         data = request.get_json(force=True)
         urls_input = data.get('url') or data.get('urls')
         category = data.get('category', '').strip() if data.get('category') else ''
+        custom_category = data.get('customCategory', '').strip() if data.get('customCategory') else ''
         quality = get_and_validate_quality(data.get('quality'))
     else:
         urls_input = request.form.get('url') or request.form.get('urls')
         category = request.form.get('category', '').strip() if request.form.get('category') else ''
+        custom_category = request.form.get('customCategory', '').strip() if request.form.get('customCategory') else ''
         quality = get_and_validate_quality(request.form.get('quality'))
+    
+    # Use custom category if "__custom__" is selected
+    if category == '__custom__':
+        if custom_category:
+            category = custom_category
+        else:
+            # Custom selected but no custom category provided
+            if request.is_json:
+                return jsonify({'error': 'Custom category name is required'}), 400
+            else:
+                return render_template('index.html', error='Custom category name is required'), 400
+    
     if not urls_input:
         if request.is_json:
             return jsonify({'error': 'Missing url or urls'}), 400
