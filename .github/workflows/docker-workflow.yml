@@ -16,7 +16,13 @@ jobs:
 
       - name: Copy files to folder
         run: |
-          cp -r ${{github.workspace}}/* ${{github.workspace}}/.dockerignore ${{env.APP_DIR}}
+          rsync -av --delete \
+            --exclude='.devcontainer/' \
+            --exclude='.github/' \
+            --exclude='_archived/' \
+            --exclude='.vscode/' \
+            --exclude='.git/' \
+            ${{github.workspace}}/ ${{env.APP_DIR}}/
 
       - name: Build and Run Docker Container
         run: |
