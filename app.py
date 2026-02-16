@@ -29,6 +29,26 @@ def get_and_validate_quality(quality_input):
 def is_local(addr):
     return any(addr.startswith(pref) for pref in ALLOWED_PREFIXES)
 
+def get_existing_categories():
+    """Get list of existing category folders from downloads directory."""
+    downloads_dir = "./downloads"
+    if not os.path.exists(downloads_dir):
+        return []
+    
+    categories = []
+    try:
+        for item in os.listdir(downloads_dir):
+            item_path = os.path.join(downloads_dir, item)
+            # Only include directories, exclude hidden folders and files
+            if os.path.isdir(item_path) and not item.startswith('.'):
+                categories.append(item)
+    except Exception:
+        # If we can't read the directory, return empty list
+        pass
+    
+    # Sort categories alphabetically
+    return sorted(categories)
+
 @app.before_request
 def restrict_to_local():
     client = request.remote_addr or ""
@@ -111,13 +131,15 @@ def enqueue_download():
             if request.is_json:
                 return jsonify({'error': 'Custom category name is required'}), 400
             else:
-                return render_template('index.html', error='Custom category name is required'), 400
+                categories = get_existing_categories()
+                return render_template('index.html', error='Custom category name is required', categories=categories), 400
     
     if not urls_input:
         if request.is_json:
             return jsonify({'error': 'Missing url or urls'}), 400
         else:
-            return render_template('index.html', error='Missing url or urls'), 400
+            categories = get_existing_categories()
+            return render_template('index.html', error='Missing url or urls', categories=categories), 400
     # Normalize to list
     if isinstance(urls_input, str):
         urls = [urls_input.strip()]
@@ -127,12 +149,14 @@ def enqueue_download():
         if request.is_json:
             return jsonify({'error': 'url must be a string or array of strings'}), 400
         else:
-            return render_template('index.html', error='url must be a string or array of strings'), 400
+            categories = get_existing_categories()
+            return render_template('index.html', error='url must be a string or array of strings', categories=categories), 400
     if not urls:
         if request.is_json:
             return jsonify({'error': 'No valid URLs provided'}), 400
         else:
-            return render_template('index.html', error='No valid URLs provided'), 400
+            categories = get_existing_categories()
+            return render_template('index.html', error='No valid URLs provided', categories=categories), 400
     job_ids = []
     for url in urls:
         job_id = str(uuid.uuid4())
@@ -211,7 +235,8 @@ def clear_finished():
 
 @app.route('/')
 def home():
-    return render_template('index.html')
+    categories = get_existing_categories()
+    return render_template('index.html', categories=categories)
 
 if __name__ == '__main__':
     # Listen on all interfaces but only serve local clients
