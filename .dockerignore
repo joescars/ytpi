@@ -5,5 +5,7 @@ __pycache__/
 .env
 .git/
 .github/
+.devcontainer/
+.vscode/
 downloads/
 _archived/
