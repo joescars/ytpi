@@ -33,9 +33,11 @@
                 <div class="mb-3">
                     <select class="form-select" id="category" name="category">
                         <option value="">Select Category</option>
-                        <option value="Bible-Studies">Bible Studies</option>
-                        <option value="Music-Videos">Music Videos</option>
-                        <option value="YouTube" selected>Other</option>
+                        {% if categories %}
+                            {% for cat in categories %}
+                        <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                        {% endif %}
                         <option value="__custom__">Custom...</option>
                     </select>
                 </div>
