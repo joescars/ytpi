@@ -31,7 +31,7 @@ def is_local(addr):
 
 def get_existing_categories():
     """Get list of existing category folders from downloads directory."""
-    downloads_dir = "./downloads/YouTube"
+    downloads_dir = "./downloads"
     if not os.path.exists(downloads_dir):
         return []
     
