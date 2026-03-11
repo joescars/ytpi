@@ -35,7 +35,8 @@
         "ms-vscode.test-adapter-converter",
         "hbenl.vscode-test-explorer",
         "littlefoxteam.vscode-python-test-adapter",
-        "ms-vscode.live-server"
+        "ms-vscode.live-server",
+        "openai.chatgpt"
       ]
     }
   },
@@ -57,6 +58,12 @@
 
   // Use 'postCreateCommand' to run commands after the container is created.
   "postCreateCommand": "pip install -r requirements.txt && pip install --upgrade yt-dlp",
+  "containerEnv": {
+    "YTPI_ALLOWED_CIDRS": "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16",
+    "YTPI_TRUST_PROXY": "0",
+    "YTPI_DB_PATH": "/workspace/.devcontainer/jobs.db",
+    "YTPI_DOWNLOADS_DIR": "/workspace/downloads"
+  },
 
   // Configure tool-specific properties.
   "remoteUser": "vscode",

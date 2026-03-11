@@ -25,11 +25,14 @@ jobs:
           source venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install --upgrade yt-dlp
+      - name: Run tests
+        run: |
+          cd /home/runneruser/services/ytpi
+          source venv/bin/activate
+          pytest -q
       - name: Restart Service
         run: |
           sudo systemctl restart ytpi.service
           sleep 5
           sudo systemctl status ytpi.service
-
 

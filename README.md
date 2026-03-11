@@ -1,318 +1,149 @@
-# YouTube Downloader API (ytpi)
+# ytpi
 
-A Flask-based web service for downloading YouTube videos using yt-dlp. Designed to run on Raspberry Pi with local network access only.
+A Flask-based local YouTube downloader service using `yt-dlp`, designed for Raspberry Pi and LAN-only access by default.
 
-## Features
+## What Changed
 
-- Download single or multiple YouTube videos
-- Queue-based processing
-- Web dashboard to monitor downloads
-- RESTful API
-- Local network access only (security feature)
-- Systemd service support for Raspberry Pi
+This version adds:
 
-## Installation on Raspberry Pi
+- Persistent job history/queue in SQLite (`jobs.db`)
+- Safer network allowlisting with CIDR support (`ipaddress`)
+- Category path sanitization and traversal protection
+- Worker timeout, retry, cancel, and retry endpoints
+- Live dashboard updates (status table + output panel)
+- Configurable runtime through environment variables
+- Health/readiness endpoints: `/healthz`, `/readyz`
+- Structured JSON logging
+- Production container entrypoint via `waitress`
 
-1. **Transfer files to your Raspberry Pi:**
-
-   ```bash
-   # On your local machine, copy the project to your Pi
-   scp -r ytpi/ pi@your-pi-ip:/home/pi/
-   ```
-
-2. **SSH into your Raspberry Pi:**
-
-   ```bash
-   ssh pi@your-pi-ip
-   cd /home/pi/ytpi
-   ```
-
-3. **Run the setup script:**
-
-   ```bash
-   ./setup_service.sh
-   ```
-
-4. **Start the service:**
-
-   ```bash
-   sudo systemctl start ytpi
-   ```
-
-## Service Management
-
-- **Start service:** `sudo systemctl start ytpi`
-- **Stop service:** `sudo systemctl stop ytpi`
-- **Restart service:** `sudo systemctl restart ytpi`
-- **Check status:** `sudo systemctl status ytpi`
-- **View logs:** `sudo journalctl -u ytpi -f`
-- **Disable auto-start:** `sudo systemctl disable ytpi`
-
-## API Usage
-
-### Download Single Video
+## Quick Start
 
 ```bash
-# Basic download (uses defaults: max quality, no category)
-curl -X POST http://your-pi-ip:7434/download \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://youtube.com/watch?v=VIDEO_ID"}'
-
-# With category organization and specific quality (1080p)
-curl -X POST http://your-pi-ip:7434/download \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://youtube.com/watch?v=VIDEO_ID", "category": "Music Videos", "quality": "1080"}'
+cp .env.example .env
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python app.py
 ```
 
-### Download Multiple Videos
+App URL: `http://localhost:7434`
+
+## API
+
+### Queue downloads
 
 ```bash
-curl -X POST http://your-pi-ip:7434/download \
+curl -X POST http://localhost:7434/download \
   -H "Content-Type: application/json" \
-  -d '{"urls": ["https://youtube.com/watch?v=VIDEO1", "https://youtube.com/watch?v=VIDEO2"], "quality": "720"}'
+  -d '{"url":"https://youtube.com/watch?v=VIDEO_ID","quality":"1080","category":"Music"}'
 ```
 
-### Check Status
+For multiple URLs, pass `url` as newline/comma-separated string or `urls` as array.
 
-- Web dashboard: `http://your-pi-ip:7434/status`
-- API endpoint: `http://your-pi-ip:7434/api/status`
+### Status
 
-### Quality Options
+- UI: `GET /status`
+- JSON list: `GET /api/status?limit=200&offset=0&status=`
+- Output: `GET /job_output/<job_id>`
 
-Valid quality values:
-- `max` - Best available quality (default)
-- `2160` - 4K (2160p)
-- `1440` - 2K (1440p)
-- `1080` - Full HD (1080p)
-- `720` - HD (720p)
-- `480` - Standard (480p)
+### Job control
 
-## Local Development
+- Cancel: `POST /jobs/<job_id>/cancel`
+- Retry: `POST /jobs/<job_id>/retry`
+- Clear terminal jobs: `POST /clear-finished`
 
-1. **Install dependencies:**
+### Probes
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+- Liveness: `GET /healthz`
+- Readiness: `GET /readyz`
 
-2. **Run the app:**
+## Share Sheet Endpoint
 
-   ```bash
-   python app.py
-   ```
+`GET /share` still exists for iOS shortcut compatibility, but is configurable:
 
-The app will be available at `http://localhost:7434`
+- `YTPI_ENABLE_SHARE_GET=0` disables it
+- `YTPI_SHARE_TOKEN=<token>` requires `?token=<token>`
 
-## Containerization
+Example:
 
-You can run this application in Docker without modifying `app.py`.
-
-### Build Image
-
-```powershell
-docker build -t ytpi:latest .
+```bash
+curl "http://localhost:7434/share?url=https://youtube.com/watch?v=VIDEO_ID&token=YOUR_TOKEN"
 ```
 
-### Run Container (bind mount downloads for persistence)
+## Configuration
 
-```powershell
-mkdir downloads 2>$null
-docker run --rm -p 7434:7434 -v "${PWD}/downloads:/app/downloads" ytpi:latest
-```
+Copy `.env.example` and override as needed:
 
-Access at: `http://localhost:7434`
+- `YTPI_HOST` (default `0.0.0.0`)
+- `YTPI_PORT` (default `7434`)
+- `YTPI_DOWNLOADS_DIR` (default `./downloads`)
+- `YTPI_DB_PATH` (default `./jobs.db`)
+- `YTPI_ALLOWED_CIDRS` (default private/local CIDRs)
+- `YTPI_TRUST_PROXY` (`0|1`)
+- `YTPI_ENABLE_SHARE_GET` (`0|1`)
+- `YTPI_SHARE_TOKEN` (optional)
+- `YTPI_MAX_QUEUE_SIZE` (default `200`)
+- `YTPI_MAX_WORKERS` (default `1`)
+- `YTPI_JOB_TIMEOUT_SECONDS` (default `3600`)
+- `YTPI_MAX_RETRIES` (default `1`)
+- `YTPI_MAX_OUTPUT_CHARS` (default `8000`)
+- `YTPI_JOB_RETENTION_HOURS` (default `168`)
+- `YTPI_MAX_HISTORY_JOBS` (default `2000`)
+- `YTPI_FFMPEG_PATH` (optional)
+- `YTPI_YTDLP_BIN` (default `yt-dlp`)
 
-### Using docker-compose
+## Docker
 
-```powershell
+```bash
 docker compose up -d --build
 ```
 
-### Production Notes
+Default compose publishes `7434:7434`, persists downloads and SQLite data, and includes health checks.
 
-- The image installs `ffmpeg` (needed by `yt-dlp`).
-- A volume at `/app/downloads` persists your files.
-- Multiple containers do not share the in-memory queue (`jobs`). For scaling, use an external queue (e.g., Redis) and refactor accordingly.
-- For a production WSGI server without changing code, you may add `waitress` to `requirements.txt` and change the container command to:
+## Security Notes
 
-   ```bash
-   waitress-serve --listen=0.0.0.0:7434 app:app
-   ```
+- All requests are restricted by CIDR allowlist (`YTPI_ALLOWED_CIDRS`)
+- Category names are sanitized and constrained to the downloads root
+- Optional share token for `GET /share`
 
-### Cleanup
+## Testing
 
-```powershell
-docker compose down
-```
-
-### Optional Enhancements (future)
-
-- Environment variable for allowed IP prefixes
-- Health endpoint (`/healthz`)
-- Structured logging
-- External persistence for job history
-
-## Security
-
-This service only accepts connections from local network addresses:
-
-- 127.x.x.x (localhost)
-- 192.168.x.x (private networks)
-- 10.x.x.x (private networks)
-- 172.16-31.x.x (private networks)
-
-## File Structure
-
-- `app.py` - Main Flask application
-- `requirements.txt` - Python dependencies
-- `ytpi.service` - Systemd service file
-- `setup_service.sh` - Installation script for Raspberry Pi
-- `templates/dashboard.html` - Web dashboard
-- `downloads/` - Downloaded videos directory
-
-## Installation
-
-1. Clone the repository:
-
-   ```bash
-   git clone <repository_url>
-   ```
-
-2. Navigate to the project directory:
-
-   ```bash
-   cd ytpi
-   ```
-
-3. Create a virtual environment:
-
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   ```
-
-4. Install dependencies:
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-## Usage
-
-1. Start the Flask server:
-
-   ```bash
-   python app.py
-   ```
-
-2. Access the API locally at `http://127.0.0.1:7434`.
-
-## iOS Share Sheet Integration
-
-You can easily download YouTube videos directly from Safari or any app on your iPhone/iPad by sharing the URL to ytpi. This integration uses iOS Shortcuts and works seamlessly with the Share Sheet.
-
-### Quick Setup (Recommended)
-
-This is the simplest setup that uses default settings (max quality, no category organization):
-
-1. **Open the Shortcuts app** on your iPhone/iPad
-2. **Create a new Shortcut** (tap the + button)
-3. **Name your shortcut** (e.g., "Download to ytpi" or "Save Video")
-4. **Add these actions:**
-   - Tap "Add Action" → Search for "Get Details of Safari Web Page"
-   - Select "URL" from the dropdown
-   - Tap "+" again → Search for "URL"
-   - In the URL field, enter: `http://YOUR_PI_IP:7434/share?url=`
-   - Tap after the `=` and select "Safari Web Page URL" from the Variables menu
-   - Tap "+" again → Search for "Open URLs"
-   - Select "URL" as the input
-5. **Configure sharing:**
-   - Tap the settings icon (⚙️) at the bottom of the shortcut
-   - Enable "Show in Share Sheet"
-   - Under "Share Sheet Types," enable "URLs" and "Safari Web Pages"
-6. **Save the shortcut**
-
-**Usage:** When you're on a YouTube page in Safari (or any app), tap the Share button, scroll down to find your "Download to ytpi" shortcut, and tap it. The video will be queued for download at max quality in your downloads folder.
-
-### Setup with Category Organization (Optional)
-
-If you want to organize downloads into categories (e.g., "Music Videos", "Tutorials", etc.):
-
-Follow the same steps as above, but in step 4, use this URL format instead:
-```
-http://YOUR_PI_IP:7434/share?url=https://www.youtube.com/watch?v=VIDEO_ID&category=YOUR_CATEGORY
-```
-Replace `YOUR_CATEGORY` with your desired folder name (e.g., `Music%20Videos` for "Music Videos").
-
-**Note:** URL-encode special characters in category names - use `%20` for spaces, or use hyphens/underscores like `Music-Videos`. In the Shortcuts app, the Safari Web Page URL variable will be automatically URL-encoded.
-
-### Advanced Options
-
-#### Option A: Auto-redirect to Dashboard
-The default behavior redirects you to the status dashboard after queuing the download:
-```
-http://YOUR_PI_IP:7434/share?url=SAFARI_WEB_PAGE_URL
-```
-
-#### Option B: Show Confirmation Page
-To see a simple confirmation page in Safari instead of redirecting:
-```
-http://YOUR_PI_IP:7434/share?url=SAFARI_WEB_PAGE_URL&redirect=0
-```
-
-#### Option C: Specify Video Quality
-To download at a specific quality instead of max quality:
-```
-http://YOUR_PI_IP:7434/share?url=SAFARI_WEB_PAGE_URL&quality=1080
-```
-Valid quality values: `max`, `2160` (4K), `1440` (2K), `1080` (Full HD), `720` (HD), `480`
-
-#### Using POST Method (Advanced)
-If you prefer using the POST endpoint:
-- URL: `http://YOUR_PI_IP:7434/download`
-- Method: POST
-- Headers: `Content-Type: application/json`
-- Body: `{"url": "https://www.youtube.com/watch?v=VIDEO_ID"}`
-
-### Important Notes
-
-- **Network Requirement:** Your iPhone/iPad must be on the same local network (LAN) as your ytpi server. The app only accepts connections from local network addresses for security (127.x.x.x, 192.168.x.x, 10.x.x.x, 172.x.x.x ranges).
-- **Replace YOUR_PI_IP:** Make sure to replace `YOUR_PI_IP` with your actual server IP address (e.g., `192.168.1.100`)
-- **Default Settings:** When no category or quality is specified, videos are saved to the root downloads folder at max quality
-- **Works with Playlists:** You can share YouTube playlist URLs the same way - the entire playlist will be downloaded
-
-## API Endpoints
-
-### GET /share
-
-Queue a single URL via query string. Optimized for iOS Shortcuts and Share Sheet integration.
-
-**Query Parameters:**
-- `url` (required): The YouTube video or playlist URL
-- `category` (optional): Subfolder name under `downloads/`. If not specified, files are saved to the root downloads folder
-- `quality` (optional, default `max`): Video quality. Valid values: `max`, `2160`, `1440`, `1080`, `720`, `480`
-- `redirect` (optional, default `1`): Controls redirect behavior
-  - `1`, `true`, or `yes`: Redirects to the status dashboard
-  - `0`, `false`, or `no`: Shows a friendly confirmation page
-
-**Examples:**
 ```bash
-# Basic usage with defaults (max quality, no category)
-http://YOUR_PI_IP:7434/share?url=https://youtube.com/watch?v=abc123
-
-# With category organization
-http://YOUR_PI_IP:7434/share?url=https://youtube.com/watch?v=abc123&category=Music%20Videos
-
-# With specific quality
-http://YOUR_PI_IP:7434/share?url=https://youtube.com/watch?v=abc123&quality=1080
-
-# Show confirmation page instead of redirecting
-http://YOUR_PI_IP:7434/share?url=https://youtube.com/watch?v=abc123&redirect=0
-
-# All options combined
-http://YOUR_PI_IP:7434/share?url=https://youtube.com/watch?v=abc123&category=Tutorials&quality=720&redirect=0
+pytest -q
 ```
 
-**Response:**
-- With redirect: HTTP 302 redirect to `/status?job=<job_id>`
-- Without redirect: HTTP 202 with HTML confirmation page
+## Local Development Notes
+
+- The app enforces CIDR allowlisting on every request.
+- Default `YTPI_ALLOWED_CIDRS` already allows localhost/private ranges.
+- If you are testing through a proxy/tunnel, set:
+
+```bash
+export YTPI_TRUST_PROXY=1
+```
+
+- If your local network path is unusual, adjust:
+
+```bash
+export YTPI_ALLOWED_CIDRS="127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+```
+
+## Dev Container
+
+Use the provided `.devcontainer` config in VS Code, then run:
+
+```bash
+python app.py
+```
+
+And for tests:
+
+```bash
+pytest -q
+```
+
+Port `7434` is auto-forwarded by the dev container config.
+
+## Deploy Workflows
+
+GitHub actions are provided for self-hosted deployment and now include automated test execution before restart/build.

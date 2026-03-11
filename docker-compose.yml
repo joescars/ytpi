@@ -2,10 +2,25 @@ services:
   ytpi:
     build: .
     container_name: ytpi
-    network_mode: "host"
     ports:
-      - "7435:7434"
+      - "7434:7434"
+    environment:
+      - YTPI_HOST=0.0.0.0
+      - YTPI_PORT=7434
+      - YTPI_DOWNLOADS_DIR=/app/downloads
+      - YTPI_DB_PATH=/app/data/jobs.db
+      - YTPI_ALLOWED_CIDRS=127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128
+      - YTPI_MAX_WORKERS=1
+      - YTPI_MAX_QUEUE_SIZE=200
+      - YTPI_JOB_TIMEOUT_SECONDS=3600
+      - YTPI_MAX_RETRIES=1
     volumes:
       - /mnt/usb0/samsung/media/YouTube:/app/downloads
-      #- "/mnt/usb0/samsung/media/Music Videos:/app/downloads/Music-Videos"
+      - ./data:/app/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7434/healthz', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

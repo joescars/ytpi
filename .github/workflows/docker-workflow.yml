@@ -27,7 +27,11 @@ jobs:
       - name: Build and Run Docker Container
         run: |
           cd ${{env.APP_DIR}}
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pytest -q
           docker compose up -d --build
-
 
 

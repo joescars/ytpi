@@ -1,130 +1,58 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Download Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <style>
-    body { background: #f7f7f7; }
-    .main-container { display: flex; min-height: 100vh; }
-    .left-panel { flex: 2; padding: 2em; }
-    .right-panel { flex: 2; background: #fff; border-left: 1px solid #ddd; padding: 2em 1em; min-width: 450px; box-shadow: -2px 0 8px rgba(0,0,0,0.03); }
-    .table thead th { background: #f0f0f0; }
-    .job-link { cursor: pointer; color: #0d6efd; text-decoration: underline; }
-    .job-link.active { font-weight: bold; color: #0a58ca; }
-    pre { background: #222; color: #eee; padding: 1em; border-radius: 6px; overflow-x: auto; max-height: 60vh; white-space: pre-wrap; word-break: break-word; }
-    .error { color: #dc3545; }
-    @media (max-width: 900px) {
-      .main-container { flex-direction: column; }
-      .right-panel { min-width: unset; border-left: none; border-top: 1px solid #ddd; }
-    }
-  </style>
+  <title>ytpi | Dashboard</title>
+  <link rel="stylesheet" href="/static/ui.css">
 </head>
-<body>
-  <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
-    <div class="container-fluid">
-      <a class="navbar-brand" href="/">ytpi Downloader</a>
-    </div>
-  </nav>
-  <div class="container-fluid main-container">
-    <div class="left-panel">
-      <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="mb-0">Download Job Status</h2>
-        <button id="clear-finished-btn" class="btn btn-outline-danger btn-sm">Clear Finished</button>
+<body data-default-job-id="{{ default_job_id or '' }}">
+  <main class="shell stack enter">
+    <header class="topbar">
+      <a href="/" class="brand">ytpi<small>live queue monitor</small></a>
+      <div class="actions">
+        <button id="refresh-btn" type="button" class="btn btn-muted">Refresh</button>
+        <button id="clear-finished-btn" type="button" class="btn btn-danger">Clear Finished</button>
       </div>
-      {% if not jobs %}
-        <div class="alert alert-info">No download jobs found.</div>
-      {% endif %}
-      <div class="table-responsive">
-        <table class="table table-bordered align-middle">
-          <thead>
-            <tr>
-              <th>Job ID</th>
-              <th>URL</th>
-              <th>Status</th>
-              <th>Error</th>
-            </tr>
-          </thead>
-          <tbody>
-          {% for jid, info in jobs.items() %}
-            <tr>
-              <td><span class="job-link" data-jobid="{{ jid }}">{{ jid[:8] }}</span></td>
-              <td><a href="{{ info.url }}" target="_blank">{{ info.url }}</a></td>
-              <td>{{ info.status }}</td>
-              <td class="error">{{ info.get('error', '') }}</td>
-            </tr>
-          {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      <p class="text-muted">Click a Job ID to view live output. Refresh the page to see updates.</p>
-    </div>
-    <div class="right-panel">
-      <h4 class="mb-3">Live Job Output</h4>
-      <div id="output-jobid" class="mb-2" style="font-size:0.95em; color:#888;"></div>
-      <pre id="job-output">Select a job to view output.</pre>
-    </div>
-  </div>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-  <script>
-    const outputPre = document.getElementById('job-output');
-    const outputJobId = document.getElementById('output-jobid');
-    let pollInterval = null;
-    let activeJobId = null;
-    function showJobOutput(jobId) {
-      activeJobId = jobId;
-      outputJobId.textContent = 'Job ID: ' + jobId;
-      outputPre.textContent = 'Loading...';
-      document.querySelectorAll('.job-link').forEach(link => {
-        link.classList.toggle('active', link.dataset.jobid === jobId);
-      });
-      fetchOutput(jobId);
-      if (pollInterval) clearInterval(pollInterval);
-      pollInterval = setInterval(() => fetchOutput(jobId), 2000);
-    }
-    function fetchOutput(jobId) {
-      fetch(`/job_output/${jobId}`)
-        .then(r => r.json())
-        .then(data => {
-          outputPre.textContent = data.output || '(No output yet)';
-          outputPre.scrollTop = outputPre.scrollHeight;
-        });
-    }
-    document.querySelectorAll('.job-link').forEach(link => {
-      link.addEventListener('click', function() {
-        showJobOutput(this.dataset.jobid);
-      });
-    });
-    
-    // Clear finished downloads
-    document.getElementById('clear-finished-btn').addEventListener('click', function() {
-      if (confirm('Are you sure you want to clear all finished downloads?')) {
-        fetch('/clear-finished', { method: 'POST' })
-          .then(r => r.json())
-          .then(data => {
-            alert(data.message);
-            window.location.reload();
-          })
-          .catch(err => {
-            alert('Error clearing finished downloads: ' + err.message);
-          });
-      }
-    });
-    
-    function jobFromQuery() {
-      const params = new URLSearchParams(window.location.search);
-      return params.get('job');
-    }
-    window.onload = function() {
-      const wanted = jobFromQuery();
-      if (wanted) {
-        const link = document.querySelector(`.job-link[data-jobid="${wanted}"]`);
-        if (link) { link.click(); return; }
-      }
-      const first = document.querySelector('.job-link');
-      if (first) first.click();
-    };
-  </script>
+    </header>
+
+    <section class="kpis">
+      <article class="kpi"><h3 id="kpi-total">0</h3><p>Total Jobs</p></article>
+      <article class="kpi"><h3 id="kpi-active">0</h3><p>Active</p></article>
+      <article class="kpi"><h3 id="kpi-done">0</h3><p>Finished</p></article>
+      <article class="kpi"><h3 id="kpi-errors">0</h3><p>Errors</p></article>
+    </section>
+
+    <section class="layout">
+      <article class="surface" style="padding: 0.8rem;">
+        <div class="table-wrap">
+          <table class="jobs" aria-label="Download Jobs">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Status</th>
+                <th>Progress</th>
+                <th>ETA</th>
+                <th>Speed</th>
+                <th>URL</th>
+                <th>Error</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="jobs-body">
+              <tr><td colspan="8" class="empty">Loading jobs...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="surface" style="padding: 0.9rem;">
+        <p id="output-meta" class="output-meta">Select a job to view command output.</p>
+        <pre id="job-output" class="output">Select a job to view output.</pre>
+      </article>
+    </section>
+  </main>
+
+  <script src="/static/dashboard.js" defer></script>
 </body>
 </html>
