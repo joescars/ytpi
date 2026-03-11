@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <title>Download Dashboard</title>
@@ -7,75 +7,186 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body { background: #f7f7f7; }
-    .main-container { display: flex; min-height: 100vh; }
-    .left-panel { flex: 2; padding: 2em; }
-    .right-panel { flex: 2; background: #fff; border-left: 1px solid #ddd; padding: 2em 1em; min-width: 450px; box-shadow: -2px 0 8px rgba(0,0,0,0.03); }
-    .table thead th { background: #f0f0f0; }
+    .main-container { display: flex; min-height: calc(100vh - 80px); }
+    .left-panel { flex: 2; padding: 1.5rem; }
+    .right-panel { flex: 1; background: #fff; border-left: 1px solid #ddd; padding: 1.25rem; min-width: 360px; }
     .job-link { cursor: pointer; color: #0d6efd; text-decoration: underline; }
-    .job-link.active { font-weight: bold; color: #0a58ca; }
-    pre { background: #222; color: #eee; padding: 1em; border-radius: 6px; overflow-x: auto; max-height: 60vh; white-space: pre-wrap; word-break: break-word; }
-    .error { color: #dc3545; }
-    @media (max-width: 900px) {
+    .job-link.active { font-weight: 700; color: #0a58ca; }
+    .status-pill { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    pre { background: #1f1f1f; color: #f2f2f2; padding: 1rem; border-radius: 6px; max-height: 58vh; white-space: pre-wrap; word-break: break-word; }
+    .table-sm td, .table-sm th { vertical-align: middle; }
+    @media (max-width: 980px) {
       .main-container { flex-direction: column; }
-      .right-panel { min-width: unset; border-left: none; border-top: 1px solid #ddd; }
+      .right-panel { border-left: none; border-top: 1px solid #ddd; min-width: auto; }
     }
   </style>
 </head>
 <body>
-  <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
     <div class="container-fluid">
       <a class="navbar-brand" href="/">ytpi Downloader</a>
+      <span class="navbar-text text-light">Live queue + output</span>
     </div>
   </nav>
+
   <div class="container-fluid main-container">
     <div class="left-panel">
-      <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="mb-0">Download Job Status</h2>
-        <button id="clear-finished-btn" class="btn btn-outline-danger btn-sm">Clear Finished</button>
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Download Jobs</h2>
+        <div>
+          <button id="refresh-btn" class="btn btn-outline-secondary btn-sm">Refresh</button>
+          <button id="clear-finished-btn" class="btn btn-outline-danger btn-sm">Clear Finished</button>
+        </div>
       </div>
-      {% if not jobs %}
-        <div class="alert alert-info">No download jobs found.</div>
-      {% endif %}
+
       <div class="table-responsive">
-        <table class="table table-bordered align-middle">
-          <thead>
+        <table class="table table-sm table-bordered align-middle">
+          <thead class="table-light">
             <tr>
-              <th>Job ID</th>
-              <th>URL</th>
+              <th>ID</th>
               <th>Status</th>
+              <th>Progress</th>
+              <th>ETA</th>
+              <th>Speed</th>
+              <th>URL</th>
               <th>Error</th>
+              <th>Actions</th>
             </tr>
           </thead>
-          <tbody>
-          {% for jid, info in jobs.items() %}
-            <tr>
-              <td><span class="job-link" data-jobid="{{ jid }}">{{ jid[:8] }}</span></td>
-              <td><a href="{{ info.url }}" target="_blank">{{ info.url }}</a></td>
-              <td>{{ info.status }}</td>
-              <td class="error">{{ info.get('error', '') }}</td>
-            </tr>
-          {% endfor %}
+          <tbody id="jobs-body">
+            {% if jobs %}
+              {% for info in jobs %}
+                <tr data-jobid="{{ info.id }}">
+                  <td><span class="job-link" data-jobid="{{ info.id }}">{{ info.id[:8] }}</span></td>
+                  <td>{{ info.status }}</td>
+                  <td>{{ info.progress or 0 }}%</td>
+                  <td>{{ info.eta or '' }}</td>
+                  <td>{{ info.speed or '' }}</td>
+                  <td><a href="{{ info.url }}" target="_blank" rel="noopener">{{ info.url }}</a></td>
+                  <td class="text-danger">{{ info.error or '' }}</td>
+                  <td></td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="8" class="text-center text-muted">No download jobs found.</td></tr>
+            {% endif %}
           </tbody>
         </table>
       </div>
-      <p class="text-muted">Click a Job ID to view live output. Refresh the page to see updates.</p>
+      <div class="text-muted small">Jobs refresh every 2 seconds. Click a job ID to follow output.</div>
     </div>
+
     <div class="right-panel">
       <h4 class="mb-3">Live Job Output</h4>
-      <div id="output-jobid" class="mb-2" style="font-size:0.95em; color:#888;"></div>
+      <div id="output-meta" class="small text-muted mb-2">Select a job to view output.</div>
       <pre id="job-output">Select a job to view output.</pre>
     </div>
   </div>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
   <script>
+    const jobsBody = document.getElementById('jobs-body');
+    const outputMeta = document.getElementById('output-meta');
     const outputPre = document.getElementById('job-output');
-    const outputJobId = document.getElementById('output-jobid');
+    const refreshBtn = document.getElementById('refresh-btn');
+
     let pollInterval = null;
-    let activeJobId = null;
+    let activeJobId = {{ default_job_id|tojson }};
+
+    function statusBadge(status) {
+      const map = {
+        queued: 'bg-secondary',
+        downloading: 'bg-info text-dark',
+        finished: 'bg-success',
+        error: 'bg-danger',
+        cancelled: 'bg-warning text-dark'
+      };
+      return `<span class="badge status-pill ${map[status] || 'bg-secondary'}">${status}</span>`;
+    }
+
+    function actionButtons(job) {
+      if (job.status === 'downloading' || job.status === 'queued') {
+        return `<button class="btn btn-outline-warning btn-sm" data-action="cancel" data-jobid="${job.id}">Cancel</button>`;
+      }
+      if (job.status === 'error' || job.status === 'cancelled') {
+        return `<button class="btn btn-outline-primary btn-sm" data-action="retry" data-jobid="${job.id}">Retry</button>`;
+      }
+      return '';
+    }
+
+    function progressCell(job) {
+      const pct = Number(job.progress || 0);
+      const clamped = Math.max(0, Math.min(100, pct));
+      return `
+        <div class="progress" role="progressbar" aria-valuenow="${clamped}" aria-valuemin="0" aria-valuemax="100" style="height: 0.8rem; min-width: 100px;">
+          <div class="progress-bar" style="width: ${clamped}%;">${clamped.toFixed(1)}%</div>
+        </div>
+      `;
+    }
+
+    function renderRows(jobs) {
+      if (!jobs.length) {
+        jobsBody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No download jobs found.</td></tr>';
+        return;
+      }
+
+      jobsBody.innerHTML = jobs.map(job => {
+        const error = (job.error || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const escapedUrl = (job.url || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const isActive = activeJobId === job.id ? 'active' : '';
+        return `
+          <tr data-jobid="${job.id}">
+            <td><span class="job-link ${isActive}" data-jobid="${job.id}">${job.id.slice(0, 8)}</span></td>
+            <td>${statusBadge(job.status)}</td>
+            <td>${progressCell(job)}</td>
+            <td>${job.eta || ''}</td>
+            <td>${job.speed || ''}</td>
+            <td><a href="${escapedUrl}" target="_blank" rel="noopener">${escapedUrl}</a></td>
+            <td class="text-danger small">${error}</td>
+            <td>${actionButtons(job)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      bindJobInteractions();
+    }
+
+    function bindJobInteractions() {
+      document.querySelectorAll('.job-link').forEach(link => {
+        link.addEventListener('click', () => {
+          showJobOutput(link.dataset.jobid);
+        });
+      });
+
+      document.querySelectorAll('button[data-action="cancel"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await fetch(`/jobs/${btn.dataset.jobid}/cancel`, { method: 'POST' });
+          await fetchJobs();
+          if (activeJobId === btn.dataset.jobid) {
+            await fetchOutput(activeJobId);
+          }
+        });
+      });
+
+      document.querySelectorAll('button[data-action="retry"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await fetch(`/jobs/${btn.dataset.jobid}/retry`, { method: 'POST' });
+          await fetchJobs();
+        });
+      });
+    }
+
+    async function fetchJobs() {
+      const r = await fetch('/api/status?limit=200');
+      const data = await r.json();
+      renderRows(data.items || []);
+
+      if (!activeJobId && data.items && data.items.length) {
+        showJobOutput(data.items[0].id);
+      }
+    }
+
     function showJobOutput(jobId) {
       activeJobId = jobId;
-      outputJobId.textContent = 'Job ID: ' + jobId;
-      outputPre.textContent = 'Loading...';
       document.querySelectorAll('.job-link').forEach(link => {
         link.classList.toggle('active', link.dataset.jobid === jobId);
       });
@@ -83,48 +194,33 @@
       if (pollInterval) clearInterval(pollInterval);
       pollInterval = setInterval(() => fetchOutput(jobId), 2000);
     }
-    function fetchOutput(jobId) {
-      fetch(`/job_output/${jobId}`)
-        .then(r => r.json())
-        .then(data => {
-          outputPre.textContent = data.output || '(No output yet)';
-          outputPre.scrollTop = outputPre.scrollHeight;
-        });
+
+    async function fetchOutput(jobId) {
+      const r = await fetch(`/job_output/${jobId}`);
+      const data = await r.json();
+      const pct = Number(data.progress ?? 0);
+      outputMeta.textContent = `Job ${jobId} | status: ${data.status || 'unknown'} | progress: ${pct.toFixed(1)}% | eta: ${data.eta || '-'} | speed: ${data.speed || '-'}`;
+      outputPre.textContent = data.output || '(No output yet)';
+      outputPre.scrollTop = outputPre.scrollHeight;
     }
-    document.querySelectorAll('.job-link').forEach(link => {
-      link.addEventListener('click', function() {
-        showJobOutput(this.dataset.jobid);
-      });
+
+    document.getElementById('clear-finished-btn').addEventListener('click', async () => {
+      if (!confirm('Clear finished/error/cancelled jobs?')) return;
+      const r = await fetch('/clear-finished', { method: 'POST' });
+      const data = await r.json();
+      alert(data.message);
+      await fetchJobs();
     });
-    
-    // Clear finished downloads
-    document.getElementById('clear-finished-btn').addEventListener('click', function() {
-      if (confirm('Are you sure you want to clear all finished downloads?')) {
-        fetch('/clear-finished', { method: 'POST' })
-          .then(r => r.json())
-          .then(data => {
-            alert(data.message);
-            window.location.reload();
-          })
-          .catch(err => {
-            alert('Error clearing finished downloads: ' + err.message);
-          });
+
+    refreshBtn.addEventListener('click', fetchJobs);
+
+    window.addEventListener('load', async () => {
+      await fetchJobs();
+      if (activeJobId) {
+        showJobOutput(activeJobId);
       }
+      setInterval(fetchJobs, 2000);
     });
-    
-    function jobFromQuery() {
-      const params = new URLSearchParams(window.location.search);
-      return params.get('job');
-    }
-    window.onload = function() {
-      const wanted = jobFromQuery();
-      if (wanted) {
-        const link = document.querySelector(`.job-link[data-jobid="${wanted}"]`);
-        if (link) { link.click(); return; }
-      }
-      const first = document.querySelector('.job-link');
-      if (first) first.click();
-    };
   </script>
 </body>
 </html>
