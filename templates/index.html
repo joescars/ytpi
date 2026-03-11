@@ -1,86 +1,77 @@
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ytpi</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .main-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-        .card { max-width: 620px; width: 100%; margin: 40px auto; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-        .result { margin-top: 16px; text-align: center; }
-        .error { color: #dc3545; }
-    </style>
-    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
-    <link rel="manifest" href="/static/site.webmanifest">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ytpi | Queue Download</title>
+  <link rel="stylesheet" href="/static/ui.css">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+  <link rel="manifest" href="/static/site.webmanifest">
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="/">ytpi Downloader</a>
+  <main class="shell stack enter">
+    <header class="topbar">
+      <a href="/" class="brand">ytpi<small>local downloader</small></a>
+      <a class="btn btn-muted" href="/status">Dashboard</a>
+    </header>
+
+    <section class="surface" style="padding: 1.2rem;">
+      <div class="stack" style="gap:0.35rem; margin-bottom: 0.8rem;">
+        <h1 class="page-title">Queue YouTube Downloads</h1>
+        <p class="subtle">Paste one URL per line or comma-separated. Optimized for desktop and mobile.</p>
+      </div>
+
+      <form id="download-form" class="form-grid" action="/download" method="POST">
+        <div>
+          <label for="url">Video or Playlist URLs</label>
+          <textarea id="url" name="url" placeholder="https://youtube.com/watch?v=..." required></textarea>
         </div>
-    </nav>
-    <div class="main-container">
-        <div class="card p-4 bg-light text-dark">
-            <h2 class="mb-3 text-center">Video Downloader</h2>
-            <p class="text-muted small">Paste one URL per line (or comma separated), choose quality/category, then submit.</p>
-            <form action="/download" method="POST">
-                <div class="mb-3">
-                    <label for="url" class="form-label">Video / Playlist URLs</label>
-                    <textarea class="form-control" id="url" name="url" rows="4" placeholder="https://youtube.com/watch?v=..." required></textarea>
-                </div>
-                <div class="mb-3">
-                    <label for="category" class="form-label">Category</label>
-                    <select class="form-select" id="category" name="category">
-                        <option value="">No Category</option>
-                        {% if categories %}
-                            {% for cat in categories %}
-                        <option value="{{ cat }}">{{ cat }}</option>
-                            {% endfor %}
-                        {% endif %}
-                        <option value="__custom__">Custom...</option>
-                    </select>
-                    <div class="form-text text-dark">Allowed characters: letters, numbers, spaces, `_`, `-`, `.`</div>
-                </div>
-                <div class="mb-3" id="customCategoryContainer" style="display: none;">
-                    <label for="customCategory" class="form-label">Custom Category Name</label>
-                    <input type="text" class="form-control" id="customCategory" name="customCategory" placeholder="Enter custom category name">
-                </div>
-                <div class="mb-3">
-                    <label for="quality" class="form-label">Video Quality</label>
-                    <select class="form-select" id="quality" name="quality">
-                        <option value="max">Max Quality (Default)</option>
-                        <option value="2160">2160p (4K)</option>
-                        <option value="1440">1440p (2K)</option>
-                        <option value="1080">1080p (Full HD)</option>
-                        <option value="720">720p (HD)</option>
-                        <option value="480">480p</option>
-                    </select>
-                </div>
-                <button type="submit" class="btn btn-primary w-100">Queue Download</button>
-            </form>
-            {% if error %}
-                <div class="result error">{{ error }}</div>
+
+        <div>
+          <label for="category">Category</label>
+          <select id="category" name="category">
+            <option value="">No Category</option>
+            {% if categories %}
+              {% for cat in categories %}
+                <option value="{{ cat }}">{{ cat }}</option>
+              {% endfor %}
             {% endif %}
-            <a href="/status" class="btn btn-link mt-3 w-100">Open Dashboard</a>
+            <option value="__custom__">Custom...</option>
+          </select>
+          <p class="help">Allowed: letters, numbers, spaces, <span class="mono">_ - .</span></p>
         </div>
-    </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        document.getElementById('category').addEventListener('change', function() {
-            const customContainer = document.getElementById('customCategoryContainer');
-            const customInput = document.getElementById('customCategory');
-            if (this.value === '__custom__') {
-                customContainer.style.display = 'block';
-                customInput.required = true;
-            } else {
-                customContainer.style.display = 'none';
-                customInput.required = false;
-                customInput.value = '';
-            }
-        });
-    </script>
+
+        <div id="customCategoryWrap" hidden>
+          <label for="customCategory">Custom Category Name</label>
+          <input id="customCategory" name="customCategory" type="text" placeholder="Road Trip 2026">
+        </div>
+
+        <div>
+          <label for="quality">Quality</label>
+          <select id="quality" name="quality">
+            <option value="max">Max Quality (Default)</option>
+            <option value="2160">2160p (4K)</option>
+            <option value="1440">1440p (2K)</option>
+            <option value="1080">1080p (Full HD)</option>
+            <option value="720">720p (HD)</option>
+            <option value="480">480p</option>
+          </select>
+        </div>
+
+        {% if error %}
+          <div class="error-box">{{ error }}</div>
+        {% endif %}
+
+        <div class="actions">
+          <button id="submit-btn" type="submit" class="btn btn-primary">Queue Download</button>
+          <a href="/status" class="btn btn-muted">Open Dashboard</a>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script src="/static/index.js" defer></script>
 </body>
 </html>
