@@ -22,7 +22,7 @@ jobs:
             --exclude='_archived/' \
             --exclude='.vscode/' \
             --exclude='.git/' \
-            --excluse='data/' \
+            --exclude='data/' \
             ${{github.workspace}}/ ${{env.APP_DIR}}/
 
       - name: Build and Run Docker Container
