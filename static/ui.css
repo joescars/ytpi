@@ -69,6 +69,10 @@ a:hover { color: var(--primary-strong); }
   box-shadow: 0 8px 30px rgba(35, 60, 100, 0.1);
 }
 
+.topbar > * {
+  min-width: 0;
+}
+
 .brand {
   font-size: 1.15rem;
   font-weight: 700;
@@ -202,6 +206,10 @@ input:focus, select:focus, textarea:focus {
   align-items: start;
 }
 
+.layout > * {
+  min-width: 0;
+}
+
 .kpis {
   display: grid;
   gap: 0.7rem;
@@ -228,7 +236,12 @@ input:focus, select:focus, textarea:focus {
   letter-spacing: 0.05em;
 }
 
-.table-wrap { overflow: auto; border-radius: 12px; border: 1px solid var(--line); }
+.table-wrap {
+  overflow: auto;
+  max-width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
 
 .jobs {
   width: 100%;

@@ -26,3 +26,6 @@ htmlcov/
 # Environment files
 .env
 .env.local
+
+jobs.db*
+.DS_Store
