@@ -6,8 +6,7 @@ on: workflow_dispatch
 
 env:
   APP_DIR: /home/runneruser/services/ytpi-docker
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
+  
 jobs:
   build:
     runs-on: self-hosted
