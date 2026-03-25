@@ -18,6 +18,8 @@ services:
       - /mnt/usb0/samsung/media/YouTube:/app/downloads
       - ./data:/app/data
     restart: unless-stopped
+    labels:
+      url: "https://ytpi.bqe.duckdns.org/"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7434/healthz', timeout=3).read()"]
       interval: 30s
