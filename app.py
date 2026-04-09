@@ -481,6 +481,7 @@ class DownloadManager:
             "-P",
             str(category_dir),
             "--embed-metadata",
+            "--remote-components ejs:github",
             *subtitle_flags,
             "-o",
             output_template,
