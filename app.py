@@ -476,12 +476,12 @@ class DownloadManager:
         cmd = [
             self.config.yt_dlp_binary,
             *ffmpeg_args,
+            "--remote-components ejs:github",
             "-f",
             format_str,
             "-P",
             str(category_dir),
             "--embed-metadata",
-            "--remote-components ejs:github",
             *subtitle_flags,
             "-o",
             output_template,
