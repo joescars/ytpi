@@ -475,7 +475,7 @@ class DownloadManager:
 
         cmd = [
             self.config.yt_dlp_binary,
-            "--remote-components ejs:github",
+            "--remote-components", "ejs:github",
             *ffmpeg_args,
             "-f",
             format_str,
