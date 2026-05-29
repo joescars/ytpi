@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
 
 ALLOWED_QUALITIES = {"max", "2160", "1440", "1080", "720", "480"}
+ALLOWED_AUDIO_FORMATS = {"mp3", "wav"}
 PROGRESS_RE = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%.*?(?:at\s+([^\s]+))?.*?(?:ETA\s+([0-9:]+))?", re.IGNORECASE)
 DESTINATION_RE = re.compile(r"\[download\]\s+Destination:\s+(.+)")
 DEFAULT_ALLOWED_CIDRS = "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128"
@@ -126,6 +127,12 @@ def validate_quality(quality: str) -> str:
     return quality
 
 
+def validate_audio_format(audio_format: str) -> str:
+    if not audio_format or audio_format not in ALLOWED_AUDIO_FORMATS:
+        return "mp3"
+    return audio_format
+
+
 def normalize_urls(urls_input: Any) -> list[str]:
     if isinstance(urls_input, str):
         # Support textarea input by splitting on newlines/commas.
@@ -214,6 +221,8 @@ class JobRepository:
                     status TEXT NOT NULL,
                     category TEXT NOT NULL DEFAULT '',
                     quality TEXT NOT NULL DEFAULT 'max',
+                    audio_only INTEGER NOT NULL DEFAULT 0,
+                    audio_format TEXT NOT NULL DEFAULT '',
                     output TEXT NOT NULL DEFAULT '',
                     error TEXT,
                     progress REAL,
@@ -230,6 +239,15 @@ class JobRepository:
                 CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
                 """
             )
+            # Migrate existing databases that predate these columns.
+            for col, definition in [
+                ("audio_only", "INTEGER NOT NULL DEFAULT 0"),
+                ("audio_format", "TEXT NOT NULL DEFAULT ''"),
+            ]:
+                try:
+                    self.conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {definition}")
+                except sqlite3.OperationalError:
+                    pass  # Column already exists.
             self.conn.commit()
 
     def reset_stale_downloading_jobs(self) -> None:
@@ -245,15 +263,15 @@ class JobRepository:
             )
             self.conn.commit()
 
-    def create_job(self, job_id: str, url: str, category: str, quality: str) -> None:
+    def create_job(self, job_id: str, url: str, category: str, quality: str, audio_only: bool = False, audio_format: str = "") -> None:
         with self._lock:
             now = utc_now()
             self.conn.execute(
                 """
-                INSERT INTO jobs (id, url, status, category, quality, created_at, updated_at)
-                VALUES (?, ?, 'queued', ?, ?, ?, ?)
+                INSERT INTO jobs (id, url, status, category, quality, audio_only, audio_format, created_at, updated_at)
+                VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?)
                 """,
-                (job_id, url, category, quality, now, now),
+                (job_id, url, category, quality, 1 if audio_only else 0, audio_format, now, now),
             )
             self.conn.commit()
 
@@ -384,13 +402,13 @@ class DownloadManager:
             return True
         return all(thread.is_alive() for thread in self.workers)
 
-    def enqueue(self, url: str, category: str, quality: str) -> str:
+    def enqueue(self, url: str, category: str, quality: str, audio_only: bool = False, audio_format: str = "") -> str:
         if self.repo.count_active() >= self.config.max_queue_size:
             raise ValueError("Queue is full. Try again later.")
 
         self.repo.prune_terminal_jobs(self.config.job_retention_hours, self.config.max_history_jobs)
         job_id = str(uuid.uuid4())
-        self.repo.create_job(job_id, url, category, quality)
+        self.repo.create_job(job_id, url, category, quality, audio_only=audio_only, audio_format=audio_format)
         self.download_queue.put(job_id)
         return job_id
 
@@ -467,26 +485,41 @@ class DownloadManager:
         category_dir = resolve_category_dir(self.config.downloads_dir, job["category"])
         category_dir.mkdir(parents=True, exist_ok=True)
 
-        quality = validate_quality(job["quality"])
-        format_str = "bestvideo+bestaudio/best" if quality == "max" else f"bestvideo[height<={quality}]+bestaudio/best"
-        subtitle_flags = ["--write-auto-subs", "--sub-langs", "en", "--convert-subs", "srt"]
         ffmpeg_args = ["--ffmpeg-location", self.config.ffmpeg_path] if self.config.ffmpeg_path else []
         output_template = "%(playlist)s/%(title)s.%(ext)s" if "playlist?list=" in job["url"] else "%(title)s.%(ext)s"
 
-        cmd = [
-            self.config.yt_dlp_binary,
-            "--remote-components", "ejs:github",
-            *ffmpeg_args,
-            "-f",
-            format_str,
-            "-P",
-            str(category_dir),
-            "--embed-metadata",
-            *subtitle_flags,
-            "-o",
-            output_template,
-            job["url"],
-        ]
+        audio_only = bool(job.get("audio_only"))
+        if audio_only:
+            audio_fmt = validate_audio_format(job.get("audio_format") or "")
+            cmd = [
+                self.config.yt_dlp_binary,
+                "--remote-components", "ejs:github",
+                *ffmpeg_args,
+                "--extract-audio",
+                "--audio-format", audio_fmt,
+                "-P", str(category_dir),
+                "--embed-metadata",
+                "-o", output_template,
+                job["url"],
+            ]
+        else:
+            quality = validate_quality(job["quality"])
+            format_str = "bestvideo+bestaudio/best" if quality == "max" else f"bestvideo[height<={quality}]+bestaudio/best"
+            subtitle_flags = ["--write-auto-subs", "--sub-langs", "en", "--convert-subs", "srt"]
+            cmd = [
+                self.config.yt_dlp_binary,
+                "--remote-components", "ejs:github",
+                *ffmpeg_args,
+                "-f",
+                format_str,
+                "-P",
+                str(category_dir),
+                "--embed-metadata",
+                *subtitle_flags,
+                "-o",
+                output_template,
+                job["url"],
+            ]
 
         self.logger.info(
             "Starting download",
@@ -496,7 +529,7 @@ class DownloadManager:
                     "worker_id": worker_id,
                     "attempt": attempt_count,
                     "url": job["url"],
-                    "quality": quality,
+                    "audio_only": audio_only,
                 }
             },
         )
@@ -653,6 +686,12 @@ def create_app() -> Flask:
             return json_or_html_error("Invalid category name", 400)
         quality = validate_quality((data.get("quality") or "").strip())
 
+        audio_only_raw = data.get("audio_only", "")
+        audio_only = audio_only_raw in {True, "true", "1", "yes", "on"} or (
+            isinstance(audio_only_raw, str) and audio_only_raw.lower() in {"true", "1", "yes", "on"}
+        )
+        audio_format = validate_audio_format((data.get("audio_format") or "").strip())
+
         if (data.get("category") or "").strip() == "__custom__":
             if custom_category:
                 category = custom_category
@@ -673,7 +712,7 @@ def create_app() -> Flask:
             return json_or_html_error("Invalid category name", 400)
 
         try:
-            job_ids = [manager.enqueue(url, category, quality) for url in urls]
+            job_ids = [manager.enqueue(url, category, quality, audio_only=audio_only, audio_format=audio_format) for url in urls]
         except ValueError as exc:
             message = str(exc)
             if request.is_json:
