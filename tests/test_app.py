@@ -65,3 +65,85 @@ def test_enqueue_download(client):
     assert status_resp.status_code == 200
     status_data = status_resp.get_json()
     assert status_data["total"] >= 1
+
+
+def test_enqueue_audio_only_mp3(client):
+    resp = client.post(
+        "/download",
+        json={
+            "url": "https://youtube.com/watch?v=abc123",
+            "audio_only": "true",
+            "audio_format": "mp3",
+            "category": "Music",
+        },
+        environ_base={"REMOTE_ADDR": "127.0.0.1"},
+    )
+    assert resp.status_code == 202
+    data = resp.get_json()
+    assert "job_id" in data
+
+    # Verify the job was stored with audio_only=1 and audio_format="mp3"
+    status_resp = client.get("/api/status", environ_base={"REMOTE_ADDR": "127.0.0.1"})
+    items = status_resp.get_json()["items"]
+    job = next(j for j in items if j["id"] == data["job_id"])
+    assert job["audio_only"] == 1
+    assert job["audio_format"] == "mp3"
+    assert job["category"] == "audio-only"
+
+
+def test_enqueue_audio_only_wav(client):
+    resp = client.post(
+        "/download",
+        json={
+            "url": "https://youtube.com/watch?v=abc123",
+            "audio_only": "true",
+            "audio_format": "wav",
+        },
+        environ_base={"REMOTE_ADDR": "127.0.0.1"},
+    )
+    assert resp.status_code == 202
+    data = resp.get_json()
+    assert "job_id" in data
+
+    status_resp = client.get("/api/status", environ_base={"REMOTE_ADDR": "127.0.0.1"})
+    items = status_resp.get_json()["items"]
+    job = next(j for j in items if j["id"] == data["job_id"])
+    assert job["audio_only"] == 1
+    assert job["audio_format"] == "wav"
+    assert job["category"] == "audio-only"
+
+
+def test_enqueue_audio_only_invalid_format_defaults_to_mp3(client):
+    resp = client.post(
+        "/download",
+        json={
+            "url": "https://youtube.com/watch?v=abc123",
+            "audio_only": "true",
+            "audio_format": "flac",
+        },
+        environ_base={"REMOTE_ADDR": "127.0.0.1"},
+    )
+    assert resp.status_code == 202
+    data = resp.get_json()
+    assert "job_id" in data
+
+    status_resp = client.get("/api/status", environ_base={"REMOTE_ADDR": "127.0.0.1"})
+    items = status_resp.get_json()["items"]
+    job = next(j for j in items if j["id"] == data["job_id"])
+    assert job["audio_only"] == 1
+    assert job["audio_format"] == "mp3"
+
+
+def test_enqueue_without_audio_only_is_false(client):
+    resp = client.post(
+        "/download",
+        json={"url": "https://youtube.com/watch?v=abc123", "quality": "1080"},
+        environ_base={"REMOTE_ADDR": "127.0.0.1"},
+    )
+    assert resp.status_code == 202
+    data = resp.get_json()
+
+    status_resp = client.get("/api/status", environ_base={"REMOTE_ADDR": "127.0.0.1"})
+    items = status_resp.get_json()["items"]
+    job = next(j for j in items if j["id"] == data["job_id"])
+    assert job["audio_only"] == 0

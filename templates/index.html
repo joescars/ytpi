@@ -29,7 +29,7 @@
           <textarea id="url" name="url" placeholder="https://youtube.com/watch?v=..." required></textarea>
         </div>
 
-        <div>
+        <div id="categoryWrap">
           <label for="category">Category</label>
           <select id="category" name="category">
             <option value="">No Category</option>
@@ -57,6 +57,21 @@
             <option value="1080">1080p (Full HD)</option>
             <option value="720">720p (HD)</option>
             <option value="480">480p</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="checkbox-label">
+            <input id="audioOnly" name="audio_only" type="checkbox" value="on">
+            Download audio only
+          </label>
+        </div>
+
+        <div id="audioFormatWrap" hidden>
+          <label for="audioFormat">Audio Format</label>
+          <select id="audioFormat" name="audio_format">
+            <option value="mp3">MP3</option>
+            <option value="wav">WAV</option>
           </select>
         </div>
 
