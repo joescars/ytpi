@@ -240,6 +240,7 @@ class JobRepository:
                 """
             )
             # Migrate existing databases that predate these columns.
+            # col and definition are hardcoded literals; no user input is interpolated.
             for col, definition in [
                 ("audio_only", "INTEGER NOT NULL DEFAULT 0"),
                 ("audio_format", "TEXT NOT NULL DEFAULT ''"),
@@ -521,18 +522,18 @@ class DownloadManager:
                 job["url"],
             ]
 
-        self.logger.info(
-            "Starting download",
-            extra={
-                "context": {
-                    "job_id": job_id,
-                    "worker_id": worker_id,
-                    "attempt": attempt_count,
-                    "url": job["url"],
-                    "audio_only": audio_only,
-                }
-            },
-        )
+        log_context: dict[str, Any] = {
+            "job_id": job_id,
+            "worker_id": worker_id,
+            "attempt": attempt_count,
+            "url": job["url"],
+            "audio_only": audio_only,
+        }
+        if audio_only:
+            log_context["audio_format"] = validate_audio_format(job.get("audio_format") or "")
+        else:
+            log_context["quality"] = validate_quality(job["quality"])
+        self.logger.info("Starting download", extra={"context": log_context})
 
         timed_out = False
         output_buffer: list[str] = []
@@ -687,9 +688,7 @@ def create_app() -> Flask:
         quality = validate_quality((data.get("quality") or "").strip())
 
         audio_only_raw = data.get("audio_only", "")
-        audio_only = audio_only_raw in {True, "true", "1", "yes", "on"} or (
-            isinstance(audio_only_raw, str) and audio_only_raw.lower() in {"true", "1", "yes", "on"}
-        )
+        audio_only = str(audio_only_raw).lower() in {"true", "1", "yes", "on"}
         audio_format = validate_audio_format((data.get("audio_format") or "").strip())
 
         if (data.get("category") or "").strip() == "__custom__":

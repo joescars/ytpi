@@ -82,8 +82,6 @@ def test_enqueue_audio_only_mp3(client):
     data = resp.get_json()
     assert "job_id" in data
 
-    import app as app_module
-    importlib.reload(app_module)
     # Verify the job was stored with audio_only=1 and audio_format="mp3"
     status_resp = client.get("/api/status", environ_base={"REMOTE_ADDR": "127.0.0.1"})
     items = status_resp.get_json()["items"]
