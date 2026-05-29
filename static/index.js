@@ -1,5 +1,6 @@
 (function () {
   const categorySelect = document.getElementById('category');
+  const categoryWrap = categorySelect.closest('div');
   const customWrap = document.getElementById('customCategoryWrap');
   const customInput = document.getElementById('customCategory');
   const form = document.getElementById('download-form');
@@ -21,6 +22,15 @@
     const audioOnly = audioOnlyCheckbox.checked;
     audioFormatWrap.hidden = !audioOnly;
     qualitySelect.disabled = audioOnly;
+    categoryWrap.hidden = audioOnly;
+    categorySelect.disabled = audioOnly;
+    if (audioOnly) {
+      customWrap.hidden = true;
+      customInput.required = false;
+      customInput.value = '';
+    } else {
+      syncCustomField();
+    }
   }
 
   categorySelect.addEventListener('change', syncCustomField);

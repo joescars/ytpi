@@ -19,6 +19,7 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, url
 
 ALLOWED_QUALITIES = {"max", "2160", "1440", "1080", "720", "480"}
 ALLOWED_AUDIO_FORMATS = {"mp3", "wav"}
+AUDIO_ONLY_CATEGORY = "audio-only"
 PROGRESS_RE = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%.*?(?:at\s+([^\s]+))?.*?(?:ETA\s+([0-9:]+))?", re.IGNORECASE)
 DESTINATION_RE = re.compile(r"\[download\]\s+Destination:\s+(.+)")
 DEFAULT_ALLOWED_CIDRS = "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128"
@@ -696,6 +697,9 @@ def create_app() -> Flask:
                 category = custom_category
             else:
                 return json_or_html_error("Custom category name is required", 400)
+
+        if audio_only:
+            category = AUDIO_ONLY_CATEGORY
 
         urls = normalize_urls(urls_input)
         if not urls:
