@@ -1,6 +1,6 @@
 (function () {
   const categorySelect = document.getElementById('category');
-  const categoryWrap = categorySelect.closest('div');
+  const categoryWrap = document.getElementById('categoryWrap');
   const customWrap = document.getElementById('customCategoryWrap');
   const customInput = document.getElementById('customCategory');
   const form = document.getElementById('download-form');

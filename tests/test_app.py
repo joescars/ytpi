@@ -110,6 +110,7 @@ def test_enqueue_audio_only_wav(client):
     job = next(j for j in items if j["id"] == data["job_id"])
     assert job["audio_only"] == 1
     assert job["audio_format"] == "wav"
+    assert job["category"] == "audio-only"
 
 
 def test_enqueue_audio_only_invalid_format_defaults_to_mp3(client):
