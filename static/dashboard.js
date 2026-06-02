@@ -146,9 +146,17 @@
     return res.json();
   }
 
+  const api = {
+    jobs: () => request('/api/status?limit=200'),
+    output: (jobId) => request(`/job_output/${jobId}`),
+    cancel: (jobId) => request(`/jobs/${jobId}/cancel`, { method: 'POST' }),
+    retry: (jobId) => request(`/jobs/${jobId}/retry`, { method: 'POST' }),
+    clearFinished: () => request('/clear-finished', { method: 'POST' }),
+  };
+
   async function fetchJobs() {
     try {
-      const data = await request('/api/status?limit=200');
+      const data = await api.jobs();
       const items = data.items || [];
       renderJobs(items);
     } catch (_e) {
@@ -159,7 +167,7 @@
   async function fetchOutput(jobId) {
     if (!jobId) return;
     try {
-      const data = await request(`/job_output/${jobId}`);
+      const data = await api.output(jobId);
       const pct = pctNumber(data.progress).toFixed(1);
       outputMeta.textContent = `Job ${jobId} | ${data.status || 'unknown'} | ${pct}% | ETA ${data.eta || '-'} | ${data.speed || '-'}`;
       outputPre.textContent = data.output || '(No output yet)';
@@ -198,10 +206,10 @@
 
     try {
       if (action === 'cancel') {
-        await request(`/jobs/${jobId}/cancel`, { method: 'POST' });
+        await api.cancel(jobId);
       }
       if (action === 'retry') {
-        await request(`/jobs/${jobId}/retry`, { method: 'POST' });
+        await api.retry(jobId);
       }
       await fetchJobs();
       if (activeJobId === jobId) {
@@ -215,7 +223,7 @@
   clearBtn.addEventListener('click', async () => {
     if (!window.confirm('Clear finished/error/cancelled jobs?')) return;
     try {
-      const data = await request('/clear-finished', { method: 'POST' });
+      const data = await api.clearFinished();
       outputMeta.textContent = data.message;
       await fetchJobs();
     } catch (_e) {
