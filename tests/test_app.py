@@ -42,6 +42,12 @@ def test_blocks_non_local_ip(client):
     assert resp.status_code == 403
 
 
+def test_homepage_loads(client):
+    resp = client.get("/", environ_base={"REMOTE_ADDR": "127.0.0.1"})
+    assert resp.status_code == 200
+    assert b"ytpi | Queue Download" in resp.data
+
+
 def test_rejects_path_traversal_category(client):
     resp = client.post(
         "/download",
