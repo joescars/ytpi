@@ -12,7 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg gosu && 
 
 # yt-dlp's --remote-components ejs:github (see YTPI_ENABLE_REMOTE_COMPONENTS) needs a JS
 # runtime on PATH to execute the fetched component; deno is yt-dlp's default supported one.
-COPY --from=denoland/deno:bin-2.1.4 /deno /usr/local/bin/deno
+# yt-dlp requires deno >= 2.3.0 (see yt_dlp/utils/_jsruntime.py DenoJsRuntime.MIN_SUPPORTED_VERSION) -
+# keep this tag at or above that floor or yt-dlp silently falls back to no JS runtime.
+COPY --from=denoland/deno:bin-2.9.4 /deno /usr/local/bin/deno
 
 WORKDIR /app
 
