@@ -1,3 +1,4 @@
+import hmac
 import os
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
@@ -122,10 +123,15 @@ def create_app() -> Flask:
         if not config.enable_share_get:
             return jsonify({"error": "GET share endpoint is disabled"}), 405
 
-        if config.share_token:
-            token = (request.args.get("token") or "").strip()
-            if token != config.share_token:
-                return jsonify({"error": "Invalid share token"}), 401
+        if not config.share_token:
+            # No token configured means there is no way to authenticate this GET request
+            # beyond the IP allowlist, and GET requests can be triggered cross-site without
+            # user interaction. Refuse rather than silently operate unauthenticated.
+            return jsonify({"error": "Share endpoint requires YTPI_SHARE_TOKEN to be configured"}), 403
+
+        token = (request.args.get("token") or "").strip()
+        if not hmac.compare_digest(token, config.share_token):
+            return jsonify({"error": "Invalid share token"}), 401
 
         url = (request.args.get("url") or "").strip()
         try:

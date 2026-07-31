@@ -93,6 +93,26 @@ class JobRepository:
             self.conn.execute(f"UPDATE jobs SET {columns} WHERE id = ?", values)
             self.conn.commit()
 
+    def update_job_if_status_in(self, job_id: str, allowed_statuses: set[str], **fields: Any) -> bool:
+        """Atomically update a job only if its current status is one of allowed_statuses.
+
+        Returns True if the update applied. Used to avoid check-then-act races between
+        cancellation and the worker loop transitioning a job to 'downloading'.
+        """
+        if not fields:
+            return False
+        fields["updated_at"] = utc_now()
+        columns = ", ".join(f"{k} = ?" for k in fields)
+        placeholders = ", ".join("?" for _ in allowed_statuses)
+        values = list(fields.values()) + [job_id] + list(allowed_statuses)
+        with self._lock:
+            cur = self.conn.execute(
+                f"UPDATE jobs SET {columns} WHERE id = ? AND status IN ({placeholders})",
+                values,
+            )
+            self.conn.commit()
+        return cur.rowcount > 0
+
     def list_jobs(self, *, limit: int, offset: int, status: str = "") -> tuple[list[dict[str, Any]], int]:
         safe_limit = max(1, min(limit, 500))
         safe_offset = max(0, offset)

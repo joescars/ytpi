@@ -53,12 +53,17 @@ class DownloadManager:
         if job["status"] in {"finished", "error", "cancelled"}:
             return True
 
+        cancelled = self.repo.update_job_if_status_in(
+            job_id, {"queued", "downloading"}, status="cancelled", error="Cancelled by user", finished_at=utc_now()
+        )
+        if not cancelled:
+            # Job reached a terminal state (e.g. finished) between our read and the update.
+            return True
+
         with self.process_lock:
             proc = self.running_processes.get(job_id)
             if proc and proc.poll() is None:
                 proc.kill()
-
-        self.repo.update_job(job_id, status="cancelled", error="Cancelled by user", finished_at=utc_now())
         return True
 
     def retry_job(self, job_id: str) -> bool:
@@ -101,8 +106,9 @@ class DownloadManager:
             return
 
         attempt_count = int(job["attempt_count"] or 0) + 1
-        self.repo.update_job(
+        started = self.repo.update_job_if_status_in(
             job_id,
+            {"queued", "downloading"},
             status="downloading",
             output="",
             error="",
@@ -112,6 +118,12 @@ class DownloadManager:
             eta=None,
             speed=None,
         )
+        if not started:
+            # Job was cancelled between the read above and this atomic transition.
+            return
+        job = self.repo.get_job(job_id)
+        if not job:
+            return
 
         category_dir = resolve_category_dir(self.config.downloads_dir, job["category"])
         category_dir.mkdir(parents=True, exist_ok=True)
@@ -172,6 +184,10 @@ class DownloadManager:
 
         with self.process_lock:
             self.running_processes[job_id] = proc
+
+        current = self.repo.get_job(job_id)
+        if current and current["status"] == "cancelled" and proc.poll() is None:
+            proc.kill()
 
         try:
             if proc.stdout is not None:
