@@ -38,7 +38,24 @@ curl -X POST http://localhost:7434/download \
   -d '{"url":"https://youtube.com/watch?v=VIDEO_ID","quality":"1080","category":"Music"}'
 ```
 
-For multiple URLs, pass `url` as newline/comma-separated string or `urls` as array.
+`/download` also accepts standard form-encoded submission (`application/x-www-form-urlencoded`), which is what the web UI (`templates/index.html`) uses — the route branches on `request.is_json`. Form submissions redirect to `/status` on success instead of returning JSON.
+
+Full set of accepted `/download` fields:
+
+- `url` (string) or `urls` (array) — one or more video URLs. `url` also accepts a single newline/comma-separated string for multiple URLs.
+- `quality` — one of `max`, `2160`, `1440`, `1080`, `720`, `480` (default `max`)
+- `category` — destination subfolder under `YTPI_DOWNLOADS_DIR`; pass `__custom__` with `customCategory` set to create/use an arbitrary sanitized name
+- `customCategory` — required when `category` is `__custom__`
+- `audio_only` — `true`/`1`/`yes`/`on` to extract audio only (always filed under the `audio-only` category)
+- `audio_format` — `mp3` or `wav` (default `mp3`), only used when `audio_only` is set
+
+Example audio-only request:
+
+```bash
+curl -X POST http://localhost:7434/download \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://youtube.com/watch?v=VIDEO_ID","audio_only":true,"audio_format":"mp3"}'
+```
 
 ### Status
 
@@ -91,6 +108,9 @@ Copy `.env.example` and override as needed:
 - `YTPI_MAX_HISTORY_JOBS` (default `2000`)
 - `YTPI_FFMPEG_PATH` (optional)
 - `YTPI_YTDLP_BIN` (default `yt-dlp`)
+- `YTPI_ENABLE_REMOTE_COMPONENTS` (`0|1`, default `1`) — controls whether yt-dlp is invoked with `--remote-components ejs:github`. This is currently needed for YouTube's JS-challenge bypass but means every job depends on live GitHub access; disable if you'd rather fail closed than depend on that.
+- `YTPI_BLOCK_PRIVATE_URLS` (`0|1`, default `0`) — when enabled, rejects submitted URLs whose host is a literal private/loopback/link-local/reserved IP address (basic SSRF mitigation; does not perform DNS resolution, so a hostname that merely *resolves* to an internal address is not caught)
+- `YTPI_MAX_CONTENT_LENGTH` (default `65536`) — max request body size in bytes accepted by Flask
 
 ## Docker
 
@@ -98,7 +118,9 @@ Copy `.env.example` and override as needed:
 docker compose up -d --build
 ```
 
-Default compose publishes `7434:7434`, persists downloads and SQLite data, and includes health checks.
+Default compose publishes `7434:7434`, persists downloads and SQLite data, and includes health checks. Downloads are bind-mounted to `./downloads` by default — override with `YTPI_HOST_DOWNLOADS_DIR=/path/to/media docker compose up -d` (e.g. to point at a USB drive or NAS mount) or edit `docker-compose.yml` directly.
+
+`docker-entrypoint.sh` runs the app under [`waitress`](https://github.com/Pylons/waitress), a production WSGI server; `python app.py` (used in Quick Start / Dev Container) uses Flask's built-in development server and is not intended for anything beyond local development. If you run bare-metal outside Docker, put `waitress-serve --listen=0.0.0.0:7434 app:app` (or another production WSGI server) in front instead.
 
 ## Security Notes
 

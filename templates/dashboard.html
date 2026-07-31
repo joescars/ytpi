@@ -39,7 +39,7 @@
                 <th>Action</th>
               </tr>
             </thead>
-            <tbody id="jobs-body">
+            <tbody id="jobs-body" aria-live="polite" aria-relevant="additions removals text">
               <tr><td colspan="8" class="empty">Loading jobs...</td></tr>
             </tbody>
           </table>
@@ -47,7 +47,7 @@
       </article>
 
       <article class="surface" style="padding: 0.9rem;">
-        <p id="output-meta" class="output-meta">Select a job to view command output.</p>
+        <p id="output-meta" class="output-meta" aria-live="polite">Select a job to view command output.</p>
         <pre id="job-output" class="output">Select a job to view output.</pre>
       </article>
     </section>

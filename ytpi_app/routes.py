@@ -1,3 +1,5 @@
+import atexit
+import hmac
 import os
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
@@ -25,9 +27,12 @@ def create_app() -> Flask:
     config = load_config()
     logger = setup_logging()
 
+    app.config["MAX_CONTENT_LENGTH"] = config.max_content_length
+
     config.downloads_dir.mkdir(parents=True, exist_ok=True)
     repo = JobRepository(config.db_path)
     manager = DownloadManager(config, repo, logger)
+    atexit.register(manager.shutdown)
 
     app.config["ytpi_config"] = config
     app.config["ytpi_repo"] = repo
@@ -37,6 +42,10 @@ def create_app() -> Flask:
     def restrict_to_local() -> None:
         client_ip = parse_client_ip(request, config.trust_proxy)
         if client_ip is None or not any(client_ip in network for network in config.allowed_cidrs):
+            logger.warning(
+                "Blocked request from disallowed IP",
+                extra={"context": {"remote_addr": request.remote_addr, "path": request.path}},
+            )
             abort(403)
 
     def json_or_html_error(message: str, status_code: int):
@@ -95,7 +104,7 @@ def create_app() -> Flask:
         if not urls:
             return json_or_html_error("Missing url or urls", 400)
 
-        invalid_urls = [url for url in urls if not validate_url(url)]
+        invalid_urls = [url for url in urls if not validate_url(url, config.block_private_urls)]
         if invalid_urls:
             return json_or_html_error("One or more URLs are invalid", 400)
 
@@ -122,10 +131,15 @@ def create_app() -> Flask:
         if not config.enable_share_get:
             return jsonify({"error": "GET share endpoint is disabled"}), 405
 
-        if config.share_token:
-            token = (request.args.get("token") or "").strip()
-            if token != config.share_token:
-                return jsonify({"error": "Invalid share token"}), 401
+        if not config.share_token:
+            # No token configured means there is no way to authenticate this GET request
+            # beyond the IP allowlist, and GET requests can be triggered cross-site without
+            # user interaction. Refuse rather than silently operate unauthenticated.
+            return jsonify({"error": "Share endpoint requires YTPI_SHARE_TOKEN to be configured"}), 403
+
+        token = (request.args.get("token") or "").strip()
+        if not hmac.compare_digest(token, config.share_token):
+            return jsonify({"error": "Invalid share token"}), 401
 
         url = (request.args.get("url") or "").strip()
         try:
@@ -135,7 +149,7 @@ def create_app() -> Flask:
         quality = validate_quality((request.args.get("quality") or "").strip())
         if not url:
             return jsonify({"error": "Missing url"}), 400
-        if not validate_url(url):
+        if not validate_url(url, config.block_private_urls):
             return jsonify({"error": "Invalid URL"}), 400
 
         try:
@@ -180,6 +194,10 @@ def create_app() -> Flask:
     @app.route("/jobs/<job_id>/cancel", methods=["POST"])
     def cancel_job(job_id: str):
         ok = manager.cancel_job(job_id)
+        logger.info(
+            "Job cancel requested",
+            extra={"context": {"remote_addr": request.remote_addr, "job_id": job_id, "found": ok}},
+        )
         if not ok:
             return jsonify({"error": "Job not found"}), 404
         return jsonify({"status": "success", "message": "Job cancelled"})
@@ -187,6 +205,10 @@ def create_app() -> Flask:
     @app.route("/jobs/<job_id>/retry", methods=["POST"])
     def retry_job(job_id: str):
         ok = manager.retry_job(job_id)
+        logger.info(
+            "Job retry requested",
+            extra={"context": {"remote_addr": request.remote_addr, "job_id": job_id, "accepted": ok}},
+        )
         if not ok:
             return jsonify({"error": "Job cannot be retried"}), 400
         return jsonify({"status": "success", "message": "Job re-queued"})
@@ -194,6 +216,10 @@ def create_app() -> Flask:
     @app.route("/clear-finished", methods=["POST"])
     def clear_finished():
         removed = repo.clear_terminal_jobs()
+        logger.info(
+            "Cleared finished jobs",
+            extra={"context": {"remote_addr": request.remote_addr, "removed": removed}},
+        )
         return jsonify({"status": "success", "message": f"Cleared {removed} finished job(s)"})
 
     @app.route("/")

@@ -34,6 +34,9 @@ class Config:
     max_history_jobs: int
     ffmpeg_path: str
     yt_dlp_binary: str
+    enable_remote_components: bool
+    block_private_urls: bool
+    max_content_length: int
 
 
 def parse_bool(value: str | None, default: bool = False) -> bool:
@@ -109,6 +112,9 @@ def load_config() -> Config:
         max_history_jobs=parse_int(os.getenv("YTPI_MAX_HISTORY_JOBS", "2000"), 2000, 100),
         ffmpeg_path=os.getenv("YTPI_FFMPEG_PATH", ""),
         yt_dlp_binary=os.getenv("YTPI_YTDLP_BIN", "yt-dlp"),
+        enable_remote_components=parse_bool(os.getenv("YTPI_ENABLE_REMOTE_COMPONENTS", "1")),
+        block_private_urls=parse_bool(os.getenv("YTPI_BLOCK_PRIVATE_URLS", "0")),
+        max_content_length=parse_int(os.getenv("YTPI_MAX_CONTENT_LENGTH", "65536"), 65536, 1024),
     )
 
 
@@ -135,11 +141,32 @@ def normalize_urls(urls_input: Any) -> list[str]:
     return urls
 
 
-def validate_url(url: str) -> bool:
+def is_literal_private_host(url: str) -> bool:
+    """True if url's host is a literal IP in a private/loopback/link-local/reserved range.
+
+    This does not perform DNS resolution (a hostname that *resolves* to an internal
+    address is not caught) - it only blocks the common case of a caller pointing the
+    generic extractor directly at an internal IP literal.
+    """
+    host = urlparse(url).hostname
+    if not host:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
+
+
+def validate_url(url: str, block_private_hosts: bool = False) -> bool:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
         return False
-    return bool(parsed.netloc)
+    if not parsed.netloc:
+        return False
+    if block_private_hosts and is_literal_private_host(url):
+        return False
+    return True
 
 
 def sanitize_category(raw: str) -> str:

@@ -15,9 +15,11 @@ services:
       - YTPI_JOB_TIMEOUT_SECONDS=3600
       - YTPI_MAX_RETRIES=1
     volumes:
-      - /mnt/usb0/samsung/media/YouTube:/app/downloads
+      - ${YTPI_HOST_DOWNLOADS_DIR:-./downloads}:/app/downloads
       - ./data:/app/data
     restart: unless-stopped
+    mem_limit: 1g
+    cpus: 2.0
     labels:
       url: "https://ytpi.bqe.duckdns.org"
     healthcheck:
