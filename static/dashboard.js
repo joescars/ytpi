@@ -13,6 +13,8 @@
 
   let activeJobId = activeJobSeed || null;
   let outputTimer = null;
+  let jobsFetchInFlight = false;
+  let outputFetchInFlight = false;
 
   function pctNumber(value) {
     const num = Number(value ?? 0);
@@ -64,8 +66,12 @@
     const progressTd = document.createElement('td');
     const progressWrap = document.createElement('div');
     progressWrap.className = 'progress';
+    progressWrap.setAttribute('role', 'progressbar');
+    progressWrap.setAttribute('aria-valuemin', '0');
+    progressWrap.setAttribute('aria-valuemax', '100');
     const progressFill = document.createElement('span');
     const percent = pctNumber(job.progress);
+    progressWrap.setAttribute('aria-valuenow', String(percent));
     progressFill.style.width = `${percent}%`;
     progressWrap.appendChild(progressFill);
     const pctText = document.createElement('div');
@@ -155,17 +161,22 @@
   };
 
   async function fetchJobs() {
+    if (jobsFetchInFlight || document.hidden) return;
+    jobsFetchInFlight = true;
     try {
       const data = await api.jobs();
       const items = data.items || [];
       renderJobs(items);
     } catch (_e) {
       // Keep UI responsive even if poll occasionally fails.
+    } finally {
+      jobsFetchInFlight = false;
     }
   }
 
   async function fetchOutput(jobId) {
-    if (!jobId) return;
+    if (!jobId || outputFetchInFlight || document.hidden) return;
+    outputFetchInFlight = true;
     try {
       const data = await api.output(jobId);
       const pct = pctNumber(data.progress).toFixed(1);
@@ -173,7 +184,9 @@
       outputPre.textContent = data.output || '(No output yet)';
       outputPre.scrollTop = outputPre.scrollHeight;
     } catch (_e) {
-      outputMeta.textContent = `Job ${jobId} | output unavailable`; 
+      outputMeta.textContent = `Job ${jobId} | output unavailable`;
+    } finally {
+      outputFetchInFlight = false;
     }
   }
 
@@ -232,6 +245,13 @@
   });
 
   refreshBtn.addEventListener('click', fetchJobs);
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      fetchJobs();
+      if (activeJobId) fetchOutput(activeJobId);
+    }
+  });
 
   window.addEventListener('load', async () => {
     await fetchJobs();

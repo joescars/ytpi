@@ -10,8 +10,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg gosu && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=denoland/deno:bin-2.1.4 /deno /usr/local/bin/deno
-
 WORKDIR /app
 
 COPY requirements.txt ./

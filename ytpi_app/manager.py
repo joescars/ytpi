@@ -1,7 +1,10 @@
+import os
 import queue
 import re
+import signal
 import subprocess
 import threading
+import time
 import uuid
 from typing import Any
 
@@ -10,6 +13,17 @@ from .repository import JobRepository
 
 PROGRESS_RE = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%.*?(?:at\s+([^\s]+))?.*?(?:ETA\s+([0-9:]+))?", re.IGNORECASE)
 DESTINATION_RE = re.compile(r"\[download\]\s+Destination:\s+(.+)")
+PROGRESS_FLUSH_INTERVAL_SECONDS = 1.0
+
+
+def _kill_process_group(proc: "subprocess.Popen[str]") -> None:
+    """Kill proc and any children it spawned (e.g. ffmpeg) via its process group."""
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        proc.kill()
 
 
 class DownloadManager:
@@ -33,8 +47,16 @@ class DownloadManager:
 
     def is_alive(self) -> bool:
         if not self.workers:
-            return True
+            # No worker threads (YTPI_MAX_WORKERS=0, e.g. in tests). Only report unhealthy
+            # if there's actually work sitting in the queue with nothing to process it.
+            return self.download_queue.empty()
         return all(thread.is_alive() for thread in self.workers)
+
+    def shutdown(self) -> None:
+        with self.process_lock:
+            procs = list(self.running_processes.values())
+        for proc in procs:
+            _kill_process_group(proc)
 
     def enqueue(self, url: str, category: str, quality: str, audio_only: bool = False, audio_format: str = "") -> str:
         if self.repo.count_active() >= self.config.max_queue_size:
@@ -62,8 +84,8 @@ class DownloadManager:
 
         with self.process_lock:
             proc = self.running_processes.get(job_id)
-            if proc and proc.poll() is None:
-                proc.kill()
+            if proc:
+                _kill_process_group(proc)
         return True
 
     def retry_job(self, job_id: str) -> bool:
@@ -131,12 +153,14 @@ class DownloadManager:
         ffmpeg_args = ["--ffmpeg-location", self.config.ffmpeg_path] if self.config.ffmpeg_path else []
         output_template = "%(playlist)s/%(title)s.%(ext)s" if "playlist?list=" in job["url"] else "%(title)s.%(ext)s"
 
+        remote_component_args = ["--remote-components", "ejs:github"] if self.config.enable_remote_components else []
+
         audio_only = bool(job.get("audio_only"))
         if audio_only:
             audio_fmt = validate_audio_format(job.get("audio_format") or "")
             cmd = [
                 self.config.yt_dlp_binary,
-                "--remote-components", "ejs:github",
+                *remote_component_args,
                 *ffmpeg_args,
                 "--extract-audio",
                 "--audio-format", audio_fmt,
@@ -151,7 +175,7 @@ class DownloadManager:
             subtitle_flags = ["--write-auto-subs", "--sub-langs", "en", "--convert-subs", "srt"]
             cmd = [
                 self.config.yt_dlp_binary,
-                "--remote-components", "ejs:github",
+                *remote_component_args,
                 *ffmpeg_args,
                 "-f", format_str,
                 "-P", str(category_dir),
@@ -169,15 +193,16 @@ class DownloadManager:
         self.logger.info("Starting download", extra={"context": log_context})
 
         timed_out = False
-        output_buffer: list[str] = []
+        output_tail = ""
 
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True
+        )
 
         def on_timeout() -> None:
             nonlocal timed_out
             timed_out = True
-            if proc.poll() is None:
-                proc.kill()
+            _kill_process_group(proc)
 
         timeout_timer = threading.Timer(self.config.job_timeout_seconds, on_timeout)
         timeout_timer.start()
@@ -186,33 +211,44 @@ class DownloadManager:
             self.running_processes[job_id] = proc
 
         current = self.repo.get_job(job_id)
-        if current and current["status"] == "cancelled" and proc.poll() is None:
-            proc.kill()
+        if current and current["status"] == "cancelled":
+            _kill_process_group(proc)
 
         try:
             if proc.stdout is not None:
+                pending_updates: dict[str, Any] = {}
+                last_flush = 0.0
                 for line in proc.stdout:
-                    output_buffer.append(line)
-                    latest_output = "".join(output_buffer)[-self.config.max_output_chars :]
-                    updates: dict[str, Any] = {"output": latest_output}
+                    output_tail = (output_tail + line)[-self.config.max_output_chars :]
 
                     progress_match = PROGRESS_RE.search(line)
                     if progress_match:
                         progress_str, speed, eta = progress_match.groups()
                         try:
-                            updates["progress"] = float(progress_str)
+                            pending_updates["progress"] = float(progress_str)
                         except ValueError:
                             pass
                         if speed:
-                            updates["speed"] = speed
+                            pending_updates["speed"] = speed
                         if eta:
-                            updates["eta"] = eta
+                            pending_updates["eta"] = eta
 
                     destination_match = DESTINATION_RE.search(line)
                     if destination_match:
-                        updates["filename"] = destination_match.group(1).strip()
+                        pending_updates["filename"] = destination_match.group(1).strip()
 
-                    self.repo.update_job(job_id, **updates)
+                    now = time.monotonic()
+                    # Persist on a cadence rather than on every line - yt-dlp can emit dozens
+                    # of progress lines per second, and each write is a synchronous SQLite
+                    # commit. Always flush on a destination change so the filename shows up
+                    # promptly.
+                    if destination_match or now - last_flush >= PROGRESS_FLUSH_INTERVAL_SECONDS:
+                        self.repo.update_job(job_id, output=output_tail, **pending_updates)
+                        pending_updates = {}
+                        last_flush = now
+
+                if pending_updates or output_tail:
+                    self.repo.update_job(job_id, output=output_tail, **pending_updates)
 
             proc.wait()
         finally:
@@ -224,7 +260,7 @@ class DownloadManager:
         if latest and latest["status"] == "cancelled":
             return
 
-        final_output = "".join(output_buffer)[-self.config.max_output_chars :]
+        final_output = output_tail
         if proc.returncode == 0 and not timed_out:
             self.repo.update_job(job_id, status="finished", output=final_output, progress=100.0, finished_at=utc_now())
             return
