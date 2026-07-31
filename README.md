@@ -118,7 +118,7 @@ Copy `.env.example` and override as needed:
 docker compose up -d --build
 ```
 
-Default compose publishes `7434:7434`, persists downloads and SQLite data, and includes health checks. Downloads are bind-mounted to `./downloads` by default — override with `YTPI_HOST_DOWNLOADS_DIR=/path/to/media docker compose up -d` (e.g. to point at a USB drive or NAS mount) or edit `docker-compose.yml` directly.
+Default compose publishes `7434:7434`, persists downloads and SQLite data, and includes health checks. The downloads bind mount in `docker-compose.yml` is host-specific — override it with `YTPI_HOST_DOWNLOADS_DIR=/path/to/media docker compose up -d`, or edit the mount in `docker-compose.yml` directly for your own host path.
 
 `docker-entrypoint.sh` runs the app under [`waitress`](https://github.com/Pylons/waitress), a production WSGI server; `python app.py` (used in Quick Start / Dev Container) uses Flask's built-in development server and is not intended for anything beyond local development. If you run bare-metal outside Docker, put `waitress-serve --listen=0.0.0.0:7434 app:app` (or another production WSGI server) in front instead.
 
