@@ -17,6 +17,7 @@ from .config import (
     validate_audio_format,
     validate_quality,
     validate_url,
+    get_playlist_id,
 )
 from .manager import DownloadManager
 from .repository import JobRepository
@@ -119,6 +120,11 @@ def create_app() -> Flask:
             message = str(exc)
             return (jsonify({"error": message}), 429) if request.is_json else json_or_html_error(message, 429)
 
+        for url in urls:
+            playlist_id = get_playlist_id(url)
+            if playlist_id:
+                repo.upsert_playlist(url, playlist_id, category, quality, audio_only, audio_format)
+
         if not request.is_json:
             if len(job_ids) == 1:
                 return redirect(url_for("status") + f"?job={job_ids[0]}")
@@ -175,6 +181,25 @@ def create_app() -> Flask:
         status_filter = (request.args.get("status") or "").strip()
         jobs, total = repo.list_jobs(limit=limit, offset=offset, status=status_filter)
         return jsonify({"items": jobs, "total": total, "limit": limit, "offset": offset})
+
+    @app.route("/api/playlists", methods=["GET"])
+    def api_playlists():
+        return jsonify({"items": repo.list_playlists()})
+
+    @app.route("/api/playlists/<int:playlist_id>/sync", methods=["POST"])
+    def sync_playlist(playlist_id: int):
+        playlist = repo.get_playlist(playlist_id)
+        if not playlist:
+            return jsonify({"error": "Playlist not found"}), 404
+        try:
+            job_id = manager.enqueue(
+                playlist["url"], playlist["category"], playlist["quality"],
+                audio_only=bool(playlist["audio_only"]), audio_format=playlist["audio_format"],
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 429
+        repo.mark_playlist_synced(playlist_id)
+        return jsonify({"job_id": job_id}), 202
 
     @app.route("/job_output/<job_id>")
     def job_output(job_id: str):

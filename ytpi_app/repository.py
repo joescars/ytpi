@@ -44,6 +44,19 @@ class JobRepository:
                 );
                 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
                 CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
+                CREATE TABLE IF NOT EXISTS playlists (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT '',
+                    quality TEXT NOT NULL DEFAULT 'max',
+                    audio_only INTEGER NOT NULL DEFAULT 0,
+                    audio_format TEXT NOT NULL DEFAULT '',
+                    last_synced_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_playlists_updated_at ON playlists(updated_at);
                 """
             )
             for col, definition in [("audio_only", "INTEGER NOT NULL DEFAULT 0"), ("audio_format", "TEXT NOT NULL DEFAULT ''")]:
@@ -76,6 +89,44 @@ class JobRepository:
                 """,
                 (job_id, url, category, quality, 1 if audio_only else 0, audio_format, now, now),
             )
+            self.conn.commit()
+
+    def upsert_playlist(self, url: str, name: str, category: str, quality: str, audio_only: bool = False, audio_format: str = "") -> dict[str, Any]:
+        with self._lock:
+            now = utc_now()
+            self.conn.execute(
+                """
+                INSERT INTO playlists (url, name, category, quality, audio_only, audio_format, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(url) DO UPDATE SET name=excluded.name, category=excluded.category,
+                    quality=excluded.quality, audio_only=excluded.audio_only, audio_format=excluded.audio_format,
+                    updated_at=excluded.updated_at
+                """,
+                (url, name, category, quality, 1 if audio_only else 0, audio_format, now, now),
+            )
+            self.conn.commit()
+            row = self.conn.execute("SELECT * FROM playlists WHERE url = ?", (url,)).fetchone()
+        return dict(row)
+
+    def list_playlists(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self.conn.execute("SELECT * FROM playlists ORDER BY updated_at DESC").fetchall()
+        return [dict(row) for row in rows]
+
+    def get_playlist(self, playlist_id: int) -> Optional[dict[str, Any]]:
+        with self._lock:
+            row = self.conn.execute("SELECT * FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+        return dict(row) if row else None
+
+    def mark_playlist_synced(self, playlist_id: int) -> None:
+        with self._lock:
+            now = utc_now()
+            self.conn.execute("UPDATE playlists SET last_synced_at=?, updated_at=? WHERE id=?", (now, now, playlist_id))
+            self.conn.commit()
+
+    def update_playlist_name(self, url: str, name: str) -> None:
+        with self._lock:
+            self.conn.execute("UPDATE playlists SET name=?, updated_at=? WHERE url=?", (name, utc_now(), url))
             self.conn.commit()
 
     def get_job(self, job_id: str) -> Optional[dict[str, Any]]:
