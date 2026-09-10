@@ -158,6 +158,47 @@ def test_enqueue_download_multi_url_array(client):
     assert len(data["job_ids"]) == 2
 
 
+def test_playlist_url_is_stored_and_listed(client):
+    url = "https://www.youtube.com/playlist?list=PLabc123"
+    resp = client.post("/download", json={"url": url}, environ_base=LOCAL)
+    assert resp.status_code == 202
+
+    playlists = client.get("/api/playlists", environ_base=LOCAL)
+    assert playlists.status_code == 200
+    item = playlists.get_json()["items"][0]
+    assert item["url"] == url
+    assert item["name"] == "PLabc123"
+
+
+def test_sync_playlist_enqueues_saved_url(client):
+    url = "https://www.youtube.com/playlist?list=PLsync123"
+    client.post("/download", json={"url": url}, environ_base=LOCAL)
+    playlist = client.get("/api/playlists", environ_base=LOCAL).get_json()["items"][0]
+
+    resp = client.post(f"/api/playlists/{playlist['id']}/sync", environ_base=LOCAL)
+    assert resp.status_code == 202
+    job = client.get("/api/status", environ_base=LOCAL).get_json()["items"][0]
+    assert job["url"] == url
+
+
+def test_playlist_name_can_be_updated_after_download(client):
+    url = "https://www.youtube.com/playlist?list=PLnamed123"
+    client.post("/download", json={"url": url}, environ_base=LOCAL)
+    repo = client.application.config["ytpi_repo"]
+    repo.update_playlist_name(url, "My Favorite Videos")
+
+    playlist = client.get("/api/playlists", environ_base=LOCAL).get_json()["items"][0]
+    assert playlist["name"] == "My Favorite Videos"
+
+
+def test_yt_dlp_finished_playlist_output_is_recognized():
+    from ytpi_app.manager import PLAYLIST_TITLE_RE
+
+    match = PLAYLIST_TITLE_RE.search("[download] Finished downloading playlist: My Favorite Videos")
+    assert match
+    assert match.group(1) == "My Favorite Videos"
+
+
 def test_enqueue_download_invalid_url(client):
     resp = client.post(
         "/download",

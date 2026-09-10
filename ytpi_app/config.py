@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 DEFAULT_ALLOWED_CIDRS = "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128"
 ALLOWED_QUALITIES = {"max", "2160", "1440", "1080", "720", "480"}
@@ -167,6 +167,24 @@ def validate_url(url: str, block_private_hosts: bool = False) -> bool:
     if block_private_hosts and is_literal_private_host(url):
         return False
     return True
+
+
+def get_playlist_id(url: str) -> Optional[str]:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host not in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}:
+        return None
+    query = parse_qs(parsed.query)
+    if parsed.path.rstrip("/") not in {"/playlist", "/watch"}:
+        return None
+    if parsed.path.rstrip("/") == "/watch" and query.get("v", [""])[0]:
+        return None
+    playlist_id = query.get("list", [""])[0].strip()
+    return playlist_id or None
+
+
+def is_playlist_url(url: str) -> bool:
+    return get_playlist_id(url) is not None
 
 
 def sanitize_category(raw: str) -> str:

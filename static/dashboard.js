@@ -4,6 +4,7 @@
   const outputPre = document.getElementById('job-output');
   const refreshBtn = document.getElementById('refresh-btn');
   const clearBtn = document.getElementById('clear-finished-btn');
+  const playlistsList = document.getElementById('playlists-list');
   const activeJobSeed = document.body.dataset.defaultJobId || '';
 
   const kpiTotal = document.getElementById('kpi-total');
@@ -154,11 +155,47 @@
 
   const api = {
     jobs: () => request('/api/status?limit=200'),
+    playlists: () => request('/api/playlists'),
     output: (jobId) => request(`/job_output/${jobId}`),
     cancel: (jobId) => request(`/jobs/${jobId}/cancel`, { method: 'POST' }),
     retry: (jobId) => request(`/jobs/${jobId}/retry`, { method: 'POST' }),
     clearFinished: () => request('/clear-finished', { method: 'POST' }),
   };
+
+  async function fetchPlaylists() {
+    try {
+      const data = await api.playlists();
+      playlistsList.innerHTML = '';
+      if (!data.items.length) {
+        playlistsList.innerHTML = '<p class="empty">No playlists saved yet.</p>';
+        return;
+      }
+      data.items.forEach(playlist => {
+        const row = document.createElement('div');
+        row.className = 'actions';
+        const label = document.createElement('a');
+        label.href = playlist.url;
+        label.target = '_blank';
+        label.rel = 'noopener';
+        label.title = playlist.url;
+        label.textContent = playlist.name || 'Untitled playlist';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn-primary';
+        button.textContent = 'Sync';
+        button.dataset.playlistId = playlist.id;
+        button.addEventListener('click', async () => {
+          button.disabled = true;
+          try { await request(`/api/playlists/${playlist.id}/sync`, { method: 'POST' }); await fetchJobs(); await fetchPlaylists(); }
+          catch (_e) { button.disabled = false; }
+        });
+        row.append(label, button);
+        playlistsList.appendChild(row);
+      });
+    } catch (_e) {
+      playlistsList.innerHTML = '<p class="empty">Playlists unavailable.</p>';
+    }
+  }
 
   async function fetchJobs() {
     if (jobsFetchInFlight || document.hidden) return;
@@ -255,6 +292,7 @@
 
   window.addEventListener('load', async () => {
     await fetchJobs();
+    await fetchPlaylists();
     if (activeJobId) openJob(activeJobId);
     setInterval(fetchJobs, 3000);
   });

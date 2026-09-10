@@ -8,11 +8,15 @@ import time
 import uuid
 from typing import Any
 
-from .config import AUDIO_ONLY_CATEGORY, Config, resolve_category_dir, setup_logging, utc_now, validate_audio_format, validate_quality
+from .config import AUDIO_ONLY_CATEGORY, Config, get_playlist_id, resolve_category_dir, setup_logging, utc_now, validate_audio_format, validate_quality
 from .repository import JobRepository
 
 PROGRESS_RE = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%.*?(?:at\s+([^\s]+))?.*?(?:ETA\s+([0-9:]+))?", re.IGNORECASE)
 DESTINATION_RE = re.compile(r"\[download\]\s+Destination:\s+(.+)")
+PLAYLIST_TITLE_RE = re.compile(
+    r"\[(?:youtube:tab|download)\]\s+(?:Downloading|Finished downloading) playlist:\s+(.+)",
+    re.IGNORECASE,
+)
 PROGRESS_FLUSH_INTERVAL_SECONDS = 1.0
 
 
@@ -186,6 +190,9 @@ class DownloadManager:
             ]
 
         log_context = {"job_id": job_id, "worker_id": worker_id, "attempt": attempt_count, "url": job["url"], "audio_only": audio_only}
+        playlist_id = get_playlist_id(job["url"])
+        if playlist_id:
+            self.repo.upsert_playlist(job["url"], playlist_id, job["category"], job["quality"], audio_only, job.get("audio_format") or "")
         if audio_only:
             log_context["audio_format"] = validate_audio_format(job.get("audio_format") or "")
         else:
@@ -236,6 +243,10 @@ class DownloadManager:
                     destination_match = DESTINATION_RE.search(line)
                     if destination_match:
                         pending_updates["filename"] = destination_match.group(1).strip()
+
+                    playlist_title_match = PLAYLIST_TITLE_RE.search(line)
+                    if playlist_title_match:
+                        self.repo.update_playlist_name(job["url"], playlist_title_match.group(1).strip())
 
                     now = time.monotonic()
                     # Persist on a cadence rather than on every line - yt-dlp can emit dozens
