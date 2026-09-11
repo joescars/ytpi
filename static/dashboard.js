@@ -1,4 +1,5 @@
 (function () {
+  console.log('dashboard.js starting');
   const jobsBody = document.getElementById('jobs-body');
   const outputMeta = document.getElementById('output-meta');
   const outputPre = document.getElementById('job-output');
@@ -527,7 +528,7 @@
   });
 
   // Setup and initialization
-  window.addEventListener('load', async () => {
+  (async () => {
     setupConnectionWarningDismiss();
     updateLastUpdatedTime(); // Initial update
     
@@ -535,5 +536,5 @@
     await fetchPlaylists();
     if (activeJobId) openJob(activeJobId);
     restartPolling();
-  });
+  })();
 })();

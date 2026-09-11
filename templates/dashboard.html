@@ -17,14 +17,14 @@
       <span id="last-updated-time" style="margin-left: 1rem; font-size: 0.9em; color: var(--text-secondary);">Last updated: just now</span>
     </div>
     <div class="connection-actions">
-      <button id="refresh-btn-top" class="btn btn-secondary" style="margin-left: 0.5rem;">Refresh</button>
-      <button id="clear-finished-btn-top" class="btn btn-muted" style="margin-left: 0.5rem;">Clear completed history</button>
-    </div>
+          <button id="refresh-btn" class="btn btn-secondary" style="margin-left: 0.5rem;">Refresh</button>
+          <button id="clear-finished-btn" class="btn btn-muted" style="margin-left: 0.5rem;">Clear completed history</button>
+        </div>
   </div>
 
   <div id="connection-warning" class="notification warning" role="alert" style="display: none; margin: 1rem 0;">
     <div class="content">
-      <p><strong>Connection lost.</strong> Data may be out of date. Attempting to reconnect...</p>
+      <p id="connection-warning-text"><strong>Connection lost.</strong> Data may be out of date. Attempting to reconnect...</p>
     </div>
   </div>
 
@@ -45,7 +45,7 @@
             <th>Actions</th>
           </tr>
         </thead>
-        <tbody id="jobs-tbody">
+        <tbody id="jobs-body">
           <tr><td colspan="6" style="text-align: center; padding: 2rem;">Loading jobs...</td></tr>
         </tbody>
       </table>
@@ -54,9 +54,10 @@
         <div id="job-details-content">
           <p class="text-muted">Select a job to see details.</p>
         </div>
+        <div id="output-meta" hidden></div>
         <details id="technical-details">
           <summary>Technical details</summary>
-          <pre id="technical-output" style="max-height: 300px; overflow: auto; margin: 0; padding: 0.5rem; background-color: var(--surface-raised); border: 1px solid var(--border); border-radius: 0.25rem;"></pre>
+          <pre id="job-output" style="max-height: 300px; overflow: auto; margin: 0; padding: 0.5rem; background-color: var(--surface-raised); border: 1px solid var(--border); border-radius: 0.25rem;"></pre>
         </details>
       </div>
     </section>

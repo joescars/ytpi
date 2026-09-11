@@ -173,14 +173,24 @@ class JobRepository:
             self.conn.commit()
         return cur.rowcount > 0
 
-    def list_jobs(self, *, limit: int, offset: int, status: str = "") -> tuple[list[dict[str, Any]], int]:
+    def list_jobs(self, *, limit: int, offset: int, status: str = "", category: str = "", search: str = "") -> tuple[list[dict[str, Any]], int]:
         safe_limit = max(1, min(limit, 500))
         safe_offset = max(0, offset)
-        where = ""
+        where_parts = []
         params: list[Any] = []
+        
         if status:
-            where = "WHERE status = ?"
+            where_parts.append("status = ?")
             params.append(status)
+        if category:
+            where_parts.append("category = ?")
+            params.append(category)
+        if search:
+            where_parts.append("(title LIKE ? OR url LIKE ? OR filename LIKE ? OR id LIKE ?)")
+            search_term = f"%{search}%"
+            params.extend([search_term, search_term, search_term, search_term])
+        
+        where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
         with self._lock:
             total = self.conn.execute(f"SELECT COUNT(*) AS c FROM jobs {where}", params).fetchone()["c"]
