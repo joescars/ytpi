@@ -31,43 +31,49 @@
       <form id="download-form" class="form-grid" action="/download" method="POST">
         <div>
           <label for="url">Video or Playlist URLs</label>
-          <textarea id="url" name="url" placeholder="https://youtube.com/watch?v=..." required></textarea>
+          <textarea id="url" name="url" placeholder="https://youtube.com/watch?v=..." required{% if error %} aria-describedby="form-error"{% endif %}>{{ url }}</textarea>
         </div>
 
         <div id="categoryWrap">
           <label for="category">Category</label>
           <select id="category" name="category">
-            <option value="">No Category</option>
+            <option value="" {% if not category %}selected{% endif %}>No Category</option>
             {% if categories %}
               {% for cat in categories %}
-                <option value="{{ cat }}">{{ cat }}</option>
+                <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>{{ cat }}</option>
               {% endfor %}
             {% endif %}
-            <option value="__custom__">Custom...</option>
+            {# Include the submitted category if it's not empty and not already in the list #}
+            {% if category and category != "__custom__" %}
+              {% if not categories or category not in categories %}
+                <option value="{{ category }}" selected>{{ category }}</option>
+              {% endif %}
+            {% endif %}
+            <option value="__custom__" {% if category == "__custom__" %}selected{% endif %}>Custom...</option>
           </select>
           <p class="help">Allowed: letters, numbers, spaces, <span class="mono">_ - .</span></p>
         </div>
 
         <div id="customCategoryWrap" hidden>
           <label for="customCategory">Custom Category Name</label>
-          <input id="customCategory" name="customCategory" type="text" placeholder="Road Trip 2026">
+          <input id="customCategory" name="customCategory" type="text" placeholder="Road Trip 2026" value="{{ customCategory }}">
         </div>
 
         <div>
           <label for="quality">Quality</label>
           <select id="quality" name="quality">
-            <option value="max">Max Quality (Default)</option>
-            <option value="2160">2160p (4K)</option>
-            <option value="1440">1440p (2K)</option>
-            <option value="1080">1080p (Full HD)</option>
-            <option value="720">720p (HD)</option>
-            <option value="480">480p</option>
+            <option value="max" {% if quality == "max" or not quality %}selected{% endif %}>Max Quality (Default)</option>
+            <option value="2160" {% if quality == "2160" %}selected{% endif %}>2160p (4K)</option>
+            <option value="1440" {% if quality == "1440" %}selected{% endif %}>1440p (2K)</option>
+            <option value="1080" {% if quality == "1080" %}selected{% endif %}>1080p (Full HD)</option>
+            <option value="720" {% if quality == "720" %}selected{% endif %}>720p (HD)</option>
+            <option value="480" {% if quality == "480" %}selected{% endif %}>480p</option>
           </select>
         </div>
 
         <div>
           <label class="checkbox-label">
-            <input id="audioOnly" name="audio_only" type="checkbox" value="on">
+            <input id="audioOnly" name="audio_only" type="checkbox" value="on" {% if audio_only %}checked{% endif %}>
             Download audio only
           </label>
         </div>
@@ -75,13 +81,13 @@
         <div id="audioFormatWrap" hidden>
           <label for="audioFormat">Audio Format</label>
           <select id="audioFormat" name="audio_format">
-            <option value="mp3">MP3</option>
-            <option value="wav">WAV</option>
+            <option value="mp3" {% if audio_format == "mp3" or not audio_format %}selected{% endif %}>MP3</option>
+            <option value="wav" {% if audio_format == "wav" %}selected{% endif %}>WAV</option>
           </select>
         </div>
 
         {% if error %}
-          <div class="error-box">{{ error }}</div>
+          <div id="form-error" class="error-box" role="alert">{{ error }}</div>
         {% endif %}
 
         <div class="actions">

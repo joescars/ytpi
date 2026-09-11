@@ -49,11 +49,35 @@ def create_app() -> Flask:
             )
             abort(403)
 
-    def json_or_html_error(message: str, status_code: int):
+    def json_or_html_error(message: str, status_code: int, form_data=None):
         if request.is_json:
             return jsonify({"error": message}), status_code
         categories = get_existing_categories(config.downloads_dir)
-        return render_template("index.html", error=message, categories=categories), status_code
+        
+        # If form_data is provided, use it; otherwise get from request.form for HTML responses
+        if form_data is None and not request.is_json:
+            form_data = request.form
+        
+        # Extract form values with defaults
+        audio_only_val = form_data.get('audio_only', '') if form_data else ''
+        # Convert checkbox value to boolean for template
+        audio_only_checked = audio_only_val.lower() in {'on', 'true', '1', 'yes'}
+        
+        form_values = {
+            'url': form_data.get('url', '') if form_data else '',
+            'category': form_data.get('category', '') if form_data else '',
+            'customCategory': form_data.get('customCategory', '') if form_data else '',
+            'quality': form_data.get('quality', '') if form_data else '',
+            'audio_only': audio_only_checked,
+            'audio_format': form_data.get('audio_format', '') if form_data else '',
+        }
+        
+        return render_template(
+            "index.html", 
+            error=message, 
+            categories=categories,
+            **form_values
+        ), status_code
 
     @app.route("/healthz", methods=["GET"])
     def healthz():
@@ -86,7 +110,7 @@ def create_app() -> Flask:
             category = normalize_category_input(data.get("category", ""))
             custom_category = normalize_category_input(data.get("customCategory", ""))
         except ValueError:
-            return json_or_html_error("Invalid category name", 400)
+            return json_or_html_error("Invalid category name", 400, data)
         quality = validate_quality((data.get("quality") or "").strip())
 
         audio_only_raw = data.get("audio_only", "")
@@ -96,29 +120,37 @@ def create_app() -> Flask:
         if (data.get("category") or "").strip() == "__custom__":
             category = custom_category or ""
             if not category:
-                return json_or_html_error("Custom category name is required", 400)
+                return json_or_html_error("Custom category name is required", 400, data)
 
         if audio_only:
             category = AUDIO_ONLY_CATEGORY
 
         urls = normalize_urls(urls_input)
         if not urls:
-            return json_or_html_error("Missing url or urls", 400)
+            return json_or_html_error("Missing url or urls", 400, data)
 
-        invalid_urls = [url for url in urls if not validate_url(url, config.block_private_urls)]
+        invalid_urls = []
+        for url in urls:
+            if not validate_url(url, config.block_private_urls):
+                invalid_urls.append(url)
+        
         if invalid_urls:
-            return json_or_html_error("One or more URLs are invalid", 400)
+            if len(invalid_urls) == 1:
+                return json_or_html_error(f"Invalid URL: {invalid_urls[0]}", 400, data)
+            else:
+                # Show first invalid URL as example
+                return json_or_html_error(f"Multiple invalid URLs (e.g., {invalid_urls[0]})", 400, data)
 
         try:
             resolve_category_dir(config.downloads_dir, category)
         except ValueError:
-            return json_or_html_error("Invalid category name", 400)
+            return json_or_html_error("Invalid category name", 400, data)
 
         try:
             job_ids = [manager.enqueue(url, category, quality, audio_only=audio_only, audio_format=audio_format) for url in urls]
         except ValueError as exc:
             message = str(exc)
-            return (jsonify({"error": message}), 429) if request.is_json else json_or_html_error(message, 429)
+            return (jsonify({"error": message}), 429) if request.is_json else json_or_html_error(message, 429, data)
 
         for url in urls:
             playlist_id = get_playlist_id(url)

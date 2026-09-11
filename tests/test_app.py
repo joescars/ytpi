@@ -480,3 +480,109 @@ def test_trust_proxy_disabled_ignores_forwarded_header(client):
         headers={"X-Forwarded-For": "127.0.0.1"},
     )
     assert resp.status_code == 403
+
+
+def test_form_preserves_values_on_validation_error(client):
+    """Test that form preserves submitted values when validation fails."""
+    # Submit form with invalid URL
+    resp = client.post(
+        "/download",
+        data={
+            "url": "not-a-valid-url",
+            "category": "Music",
+            "quality": "720",
+            "audio_only": "on",
+            "audio_format": "mp3"
+        },
+        environ_base=LOCAL,
+    )
+    assert resp.status_code == 400
+    
+    # Check that response contains submitted values
+    html = resp.data.decode("utf-8")
+    # URL field should show "not-a-valid-url" in textarea
+    assert 'not-a-valid-url' in html
+    # Category dropdown should show "Music" selected
+    assert 'value="Music" selected' in html or 'selected>Music<' in html
+    # Quality dropdown should show "720" selected
+    assert 'value="720" selected' in html or 'selected>720<' in html
+    # Audio-only checkbox should be checked
+    assert 'checked' in html
+    # Audio format should show "mp3" selected
+    assert 'value="mp3" selected' in html or 'selected>MP3<' in html
+
+def test_form_shows_inline_error_for_invalid_url(client):
+    """Test that invalid URLs show inline error with field focus."""
+    resp = client.post(
+        "/download",
+        data={"url": "not-a-valid-url"},
+        environ_base=LOCAL,
+    )
+    assert resp.status_code == 400
+    
+    html = resp.data.decode("utf-8")
+    # Should show specific error about invalid URL
+    assert "invalid" in html.lower() or "error" in html.lower()
+    # Error should be associated with URL field
+    # (e.g., aria-describedby, data-error attribute, or nearby error message)
+
+def test_form_preserves_custom_category(client):
+    """Test that custom category is preserved on validation error."""
+    resp = client.post(
+        "/download",
+        data={
+            "url": "not-a-valid-url",
+            "category": "__custom__",
+            "customCategory": "My Custom Videos"
+        },
+        environ_base=LOCAL,
+    )
+    assert resp.status_code == 400
+    
+    html = resp.data.decode("utf-8")
+    # Custom category field should show "My Custom Videos"
+    assert 'value="My Custom Videos"' in html
+    # __custom__ should be selected in category dropdown
+    assert 'value="__custom__" selected' in html or 'selected>Custom...<' in html
+
+def test_form_error_focuses_url_field(client):
+    """Test that form errors cause focus to move to URL field."""
+    resp = client.post(
+        "/download",
+        data={"url": "not-a-valid-url"},
+        environ_base=LOCAL,
+    )
+    assert resp.status_code == 400
+    
+    html = resp.data.decode("utf-8")
+    # Should have form-error element
+    assert 'id="form-error"' in html
+    # URL field should have aria-describedby pointing to form-error
+    assert 'aria-describedby="form-error"' in html
+
+def test_form_shows_specific_invalid_url_error(client):
+    """Test that form shows specific invalid URL in error message."""
+    resp = client.post(
+        "/download",
+        data={"url": "not-a-valid-url"},
+        environ_base=LOCAL,
+    )
+    assert resp.status_code == 400
+    
+    html = resp.data.decode("utf-8")
+    # Should show specific invalid URL
+    assert "Invalid URL: not-a-valid-url" in html
+
+def test_form_shows_multiple_invalid_urls_error(client):
+    """Test that form shows example for multiple invalid URLs."""
+    resp = client.post(
+        "/download",
+        data={"url": "not-a-valid-url\nanother-bad-url"},
+        environ_base=LOCAL,
+    )
+    assert resp.status_code == 400
+    
+    html = resp.data.decode("utf-8")
+    # Should show example of invalid URL
+    assert "Multiple invalid URLs" in html
+    assert "not-a-valid-url" in html

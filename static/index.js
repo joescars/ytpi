@@ -43,4 +43,12 @@
 
   syncCustomField();
   syncAudioOnlyField();
+
+  // Focus on URL field if there's an error
+  if (document.getElementById('form-error')) {
+    const urlField = document.getElementById('url');
+    if (urlField) {
+      urlField.focus();
+    }
+  }
 })();
