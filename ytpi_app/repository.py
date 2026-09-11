@@ -45,7 +45,6 @@ class JobRepository:
                 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
                 CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
                 CREATE TABLE IF NOT EXISTS playlists (
-                CREATE TABLE IF NOT EXISTS playlists (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     url TEXT NOT NULL UNIQUE,
                     name TEXT NOT NULL,
@@ -54,27 +53,15 @@ class JobRepository:
                     audio_only INTEGER NOT NULL DEFAULT 0,
                     audio_format TEXT NOT NULL DEFAULT '',
                     last_synced_at TEXT,
-                    sync_status TEXT NOT NULL DEFAULT 'idle',
-                    sync_job_id TEXT,
-                    last_successful_sync_at TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_playlists_updated_at ON playlists(updated_at);
-                CREATE INDEX IF NOT EXISTS idx_playlists_sync_status ON playlists(sync_status);
-                CREATE INDEX IF NOT EXISTS idx_playlists_sync_job_id ON playlists(sync_job_id);
                 """
             )
             for col, definition in [("audio_only", "INTEGER NOT NULL DEFAULT 0"), ("audio_format", "TEXT NOT NULL DEFAULT ''")]:
-            for col, definition in [("audio_only", "INTEGER NOT NULL DEFAULT 0"), ("audio_format", "TEXT NOT NULL DEFAULT ''")]:
                 try:
                     self.conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {definition}")
-                except sqlite3.OperationalError:
-                    pass
-            # Add new playlist columns for backward compatibility
-            for col, definition in [("sync_status", "TEXT NOT NULL DEFAULT 'idle'"), ("sync_job_id", "TEXT"), ("last_successful_sync_at", "TEXT")]:
-                try:
-                    self.conn.execute(f"ALTER TABLE playlists ADD COLUMN {col} {definition}")
                 except sqlite3.OperationalError:
                     pass
             self.conn.commit()
@@ -87,27 +74,6 @@ class JobRepository:
                 UPDATE jobs
                 SET status='queued', updated_at=?, error=COALESCE(error,'')
                 WHERE status='downloading'
-                """,
-                (now,),
-            )
-            self.conn.commit()
-
-    def reset_stale_playlist_sync_states(self) -> None:
-        """Reset playlist sync states for jobs that are in 'queued' or 'downloading' status."""
-        with self._lock:
-            now = utc_now()
-            # Find playlists with sync_status 'active' or 'requested' where the associated job
-            # is not in a terminal state (finished, error, cancelled)
-            self.conn.execute(
-                """
-                UPDATE playlists
-                SET sync_status='failed', updated_at=?
-                WHERE sync_status IN ('active', 'requested')
-                  AND sync_job_id IS NOT NULL
-                  AND sync_job_id IN (
-                    SELECT id FROM jobs 
-                    WHERE status IN ('queued', 'downloading')
-                  )
                 """,
                 (now,),
             )
@@ -130,8 +96,8 @@ class JobRepository:
             now = utc_now()
             self.conn.execute(
                 """
-                INSERT INTO playlists (url, name, category, quality, audio_only, audio_format, created_at, updated_at, sync_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle')
+                INSERT INTO playlists (url, name, category, quality, audio_only, audio_format, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(url) DO UPDATE SET name=excluded.name, category=excluded.category,
                     quality=excluded.quality, audio_only=excluded.audio_only, audio_format=excluded.audio_format,
                     updated_at=excluded.updated_at
@@ -152,52 +118,12 @@ class JobRepository:
             row = self.conn.execute("SELECT * FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
         return dict(row) if row else None
 
-    def get_playlist_by_sync_job_id(self, sync_job_id: str) -> Optional[dict[str, Any]]:
-        """Find playlist associated with a sync job."""
-        with self._lock:
-            row = self.conn.execute("SELECT * FROM playlists WHERE sync_job_id = ?", (sync_job_id,)).fetchone()
-        return dict(row) if row else None
-
-    def get_playlist_by_url(self, url: str) -> Optional[dict[str, Any]]:
-        """Find playlist by URL."""
-        with self._lock:
-            row = self.conn.execute("SELECT * FROM playlists WHERE url = ?", (url,)).fetchone()
-        return dict(row) if row else None
-
     def mark_playlist_synced(self, playlist_id: int) -> None:
-        """DEPRECATED: Use update_playlist_sync_state instead.
-        For backward compatibility, updates last_synced_at but doesn't touch new sync state fields."""
         with self._lock:
             now = utc_now()
             self.conn.execute("UPDATE playlists SET last_synced_at=?, updated_at=? WHERE id=?", (now, now, playlist_id))
             self.conn.commit()
 
-    def update_playlist_sync_state(self, playlist_id: int, sync_status: str, sync_job_id: Optional[str] = None, 
-                                   last_successful_sync_at: Optional[str] = None) -> None:
-        """Update playlist sync state with atomic updates."""
-        with self._lock:
-            now = utc_now()
-            updates = ["updated_at=?"]
-            params: list[Any] = [now]
-            
-            updates.append("sync_status=?")
-            params.append(sync_status)
-            
-            if sync_job_id is not None:
-                updates.append("sync_job_id=?")
-                params.append(sync_job_id)
-            
-            if last_successful_sync_at is not None:
-                updates.append("last_successful_sync_at=?")
-                params.append(last_successful_sync_at)
-                # Also update last_synced_at for backward compatibility
-                updates.append("last_synced_at=?")
-                params.append(last_successful_sync_at)
-            
-            set_clause = ", ".join(updates)
-            params.append(playlist_id)
-            self.conn.execute(f"UPDATE playlists SET {set_clause} WHERE id=?", params)
-            self.conn.commit()
     def update_playlist_name(self, url: str, name: str) -> None:
         with self._lock:
             self.conn.execute("UPDATE playlists SET name=?, updated_at=? WHERE url=?", (name, utc_now(), url))
@@ -247,24 +173,14 @@ class JobRepository:
             self.conn.commit()
         return cur.rowcount > 0
 
-    def list_jobs(self, *, limit: int, offset: int, status: str = "", category: str = "", search: str = "") -> tuple[list[dict[str, Any]], int]:
+    def list_jobs(self, *, limit: int, offset: int, status: str = "") -> tuple[list[dict[str, Any]], int]:
         safe_limit = max(1, min(limit, 500))
         safe_offset = max(0, offset)
-        where_parts = []
+        where = ""
         params: list[Any] = []
-        
         if status:
-            where_parts.append("status = ?")
+            where = "WHERE status = ?"
             params.append(status)
-        if category:
-            where_parts.append("category = ?")
-            params.append(category)
-        if search:
-            where_parts.append("(title LIKE ? OR url LIKE ? OR filename LIKE ? OR id LIKE ?)")
-            search_term = f"%{search}%"
-            params.extend([search_term, search_term, search_term, search_term])
-        
-        where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
         with self._lock:
             total = self.conn.execute(f"SELECT COUNT(*) AS c FROM jobs {where}", params).fetchone()["c"]
