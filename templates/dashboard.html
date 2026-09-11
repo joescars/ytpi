@@ -1,74 +1,77 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ytpi | Dashboard</title>
-  <link rel="stylesheet" href="/static/ui.css">
-  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
-  <link rel="manifest" href="/static/site.webmanifest">
-  <meta name="theme-color" content="#ffffff">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="ytpi">
-</head>
-<body data-default-job-id="{{ default_job_id or '' }}">
-  <main class="shell stack enter">
-    <header class="topbar">
-      <a href="/" class="brand">ytpi<small>live queue monitor</small></a>
-      <div class="actions">
-        <button id="refresh-btn" type="button" class="btn btn-muted">Refresh</button>
-        <button id="clear-finished-btn" type="button" class="btn btn-danger">Clear Finished</button>
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+  <div id="notification-region" class="notification-region" aria-live="polite" aria-relevant="additions text"></div>
+
+  <section class="kpis">
+    <article class="kpi"><h3 id="kpi-total">0</h3><p>Total Jobs</p></article>
+    <article class="kpi"><h3 id="kpi-active">0</h3><p>Active</p></article>
+    <article class="kpi"><h3 id="kpi-done">0</h3><p>Finished</p></article>
+    <article class="kpi"><h3 id="kpi-errors">0</h3><p>Errors</p></article>
+  </section>
+
+  <div class="connection-status-bar surface" style="margin: 1rem 0; padding: 0.5rem 1rem; display: flex; justify-content: space-between; align-items: center;">
+    <div class="connection-state">
+      <span class="connection-indicator" id="connection-indicator" style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; background-color: var(--success);" aria-hidden="true"></span>
+      <span id="connection-status-text">Connected</span>
+      <span id="last-updated-time" style="margin-left: 1rem; font-size: 0.9em; color: var(--text-secondary);">Last updated: just now</span>
+    </div>
+    <div class="connection-actions">
+      <button id="refresh-btn-top" class="btn btn-secondary" style="margin-left: 0.5rem;">Refresh</button>
+      <button id="clear-finished-btn-top" class="btn btn-muted" style="margin-left: 0.5rem;">Clear completed history</button>
+    </div>
+  </div>
+
+  <div id="connection-warning" class="notification warning" role="alert" style="display: none; margin: 1rem 0;">
+    <div class="content">
+      <p><strong>Connection lost.</strong> Data may be out of date. Attempting to reconnect...</p>
+    </div>
+  </div>
+
+  <div class="grid" style="grid-template-columns: 1fr; gap: 1rem;">
+    <section class="surface">
+      <div class="stack" style="gap:0.35rem; margin-bottom: 0.8rem;">
+        <h1>Download History</h1>
+        <p class="text-muted">Downloads in progress and completed.</p>
       </div>
-    </header>
-
-    <div id="notification-region" class="notification-region" aria-live="polite" aria-relevant="additions text"></div>
-
-    <section class="kpis">
-      <article class="kpi"><h3 id="kpi-total">0</h3><p>Total Jobs</p></article>
-      <article class="kpi"><h3 id="kpi-active">0</h3><p>Active</p></article>
-      <article class="kpi"><h3 id="kpi-done">0</h3><p>Finished</p></article>
-      <article class="kpi"><h3 id="kpi-errors">0</h3><p>Errors</p></article>
-    </section>
-
-    <section class="surface" style="padding: 0.9rem;">
-      <h2>Saved Playlists</h2>
-      <div id="playlists-list" class="stack"><p class="empty">Loading playlists...</p></div>
-    </section>
-
-    <section class="layout">
-      <article class="surface" style="padding: 0.8rem;">
-        <div class="table-wrap">
-          <table class="jobs" aria-label="Download Jobs">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Status</th>
-                <th>Progress</th>
-                <th>ETA</th>
-                <th>Speed</th>
-                <th>URL</th>
-                <th>Error</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="jobs-body" aria-live="polite" aria-relevant="additions removals text">
-              <tr><td colspan="8" class="empty">Loading jobs...</td></tr>
-            </tbody>
-          </table>
+      <table id="jobs-table" class="table">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Category</th>
+            <th>Quality</th>
+            <th>Status</th>
+            <th>Progress</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="jobs-tbody">
+          <tr><td colspan="6" style="text-align: center; padding: 2rem;">Loading jobs...</td></tr>
+        </tbody>
+      </table>
+      <div id="job-details" class="surface" style="margin-top: 1rem; padding: 1rem; border-top: 1px solid var(--border);">
+        <h3 style="margin-top: 0;">Job Details</h3>
+        <div id="job-details-content">
+          <p class="text-muted">Select a job to see details.</p>
         </div>
-      </article>
-
-      <article class="surface" style="padding: 0.9rem;">
-        <p id="output-meta" class="output-meta" aria-live="polite">Select a job to view command output.</p>
-        <pre id="job-output" class="output">Select a job to view output.</pre>
-      </article>
+        <details id="technical-details">
+          <summary>Technical details</summary>
+          <pre id="technical-output" style="max-height: 300px; overflow: auto; margin: 0; padding: 0.5rem; background-color: var(--surface-raised); border: 1px solid var(--border); border-radius: 0.25rem;"></pre>
+        </details>
+      </div>
     </section>
-  </main>
 
-  <script src="/static/dashboard.js?v=action-feedback-1" defer></script>
-</body>
-</html>
+    <section class="surface" id="playlists-section">
+      <div class="stack" style="gap:0.35rem; margin-bottom: 0.8rem;">
+        <h1>Saved Playlists</h1>
+        <p class="text-muted">Sync and manage playlists you've downloaded.</p>
+      </div>
+      <div id="playlists-list">
+        <p class="text-muted">Loading playlists…</p>
+      </div>
+    </section>
+  </div>
+{% endblock %}
+{% block scripts %}
+  <script src="/static/dashboard.js?v=playlist-sync-1" defer></script>
+{% endblock %}

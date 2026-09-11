@@ -13,6 +13,21 @@
   const kpiErrors = document.getElementById('kpi-errors');
   const kpiDone = document.getElementById('kpi-done');
 
+  // Connection state tracking
+  const connectionIndicator = document.getElementById('connection-indicator');
+  const connectionStatusText = document.getElementById('connection-status-text');
+  const lastUpdatedTime = document.getElementById('last-updated-time');
+  const connectionWarning = document.getElementById('connection-warning');
+  const connectionWarningText = document.getElementById('connection-warning-text');
+  
+  let lastSuccessfulUpdate = Date.now();
+  let consecutiveFailures = 0;
+  let maxBackoffInterval = 30000; // 30 seconds max
+  let currentPollInterval = 3000; // Start with 3 seconds
+  let jobsPollIntervalId = null;
+  let playlistsPollIntervalId = null;
+  let connectionWarningShown = false;
+
   let activeJobId = activeJobSeed || null;
   let outputTimer = null;
   let jobsFetchInFlight = false;
@@ -20,6 +35,110 @@
 
   // Track pending actions to prevent duplicates
   const pendingActions = new Set();
+
+  // API helpers
+  const api = {
+    jobs: () => request('/api/status?limit=200'),
+    output: (jobId) => request(`/job_output/${jobId}`),
+    cancel: (jobId) => request(`/jobs/${jobId}/cancel`, { method: 'POST' }),
+    retry: (jobId) => request(`/jobs/${jobId}/retry`, { method: 'POST' }),
+    clearFinished: () => request('/clear-finished', { method: 'POST' }),
+    playlists: () => request('/api/playlists'),
+    syncPlaylist: (playlistId) => request(`/api/playlists/${playlistId}/sync`, { method: 'POST' }),
+  };
+
+  async function request(path, options = {}) {
+    const response = await fetch(path, options);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  function updateConnectionState(success) {
+    if (success) {
+      consecutiveFailures = 0;
+      lastSuccessfulUpdate = Date.now();
+      updateLastUpdatedTime();
+      
+      if (connectionWarningShown) {
+        // Connection recovered
+        connectionWarning.style.display = 'none';
+        connectionWarningShown = false;
+        connectionIndicator.style.backgroundColor = 'var(--success)';
+        connectionStatusText.textContent = 'Connected';
+        showNotification('Connection restored', 'success', 3000);
+      }
+    } else {
+      consecutiveFailures++;
+      
+      // Show warning after 2 consecutive failures
+      if (consecutiveFailures >= 2 && !connectionWarningShown) {
+        connectionWarning.style.display = 'flex';
+        connectionWarningShown = true;
+        connectionIndicator.style.backgroundColor = 'var(--warning)';
+        connectionStatusText.textContent = 'Connection issues';
+        connectionWarningText.textContent = `Dashboard data may be stale (${consecutiveFailures} failures). Retrying...`;
+        showNotification('Connection issue detected', 'warning', 5000);
+      }
+      
+      // Update warning text for repeated failures
+      if (connectionWarningShown) {
+        connectionWarningText.textContent = `Dashboard data may be stale (${consecutiveFailures} failures). Retrying...`;
+      }
+      
+      // Implement backoff: increase interval up to max
+      currentPollInterval = Math.min(maxBackoffInterval, 3000 * Math.pow(1.5, consecutiveFailures - 1));
+      
+      // Restart polling with new interval
+      restartPolling();
+    }
+  }
+
+  function updateLastUpdatedTime() {
+    const now = Date.now();
+    const diff = Math.floor((now - lastSuccessfulUpdate) / 1000);
+    
+    if (diff < 10) {
+      lastUpdatedTime.textContent = 'Last updated: just now';
+    } else if (diff < 60) {
+      lastUpdatedTime.textContent = `Last updated: ${diff} seconds ago`;
+    } else if (diff < 3600) {
+      const minutes = Math.floor(diff / 60);
+      lastUpdatedTime.textContent = `Last updated: ${minutes} minute${minutes !== 1 ? 's' : ''} ago`;
+    } else {
+      const hours = Math.floor(diff / 3600);
+      lastUpdatedTime.textContent = `Last updated: ${hours} hour${hours !== 1 ? 's' : ''} ago`;
+    }
+  }
+
+  function restartPolling() {
+    // Clear existing intervals
+    if (jobsPollIntervalId) {
+      clearInterval(jobsPollIntervalId);
+      jobsPollIntervalId = null;
+    }
+    if (playlistsPollIntervalId) {
+      clearInterval(playlistsPollIntervalId);
+      playlistsPollIntervalId = null;
+    }
+    
+    // Only restart if page is visible
+    if (!document.hidden) {
+      jobsPollIntervalId = setInterval(fetchJobs, currentPollInterval);
+      // Playlists poll less frequently
+      playlistsPollIntervalId = setInterval(fetchPlaylists, Math.max(currentPollInterval * 2, 10000));
+    }
+  }
+
+  function setupConnectionWarningDismiss() {
+    const dismissBtn = connectionWarning?.querySelector('.dismiss');
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', () => {
+        connectionWarning.style.display = 'none';
+      });
+    }
+  }
 
   function showNotification(message, type = 'info', autoDismiss = 5000) {
     const notification = document.createElement('div');
@@ -98,324 +217,117 @@
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = className;
+    btn.textContent = label;
     btn.dataset.action = action;
     btn.dataset.jobid = jobId;
-    btn.textContent = label;
     return btn;
   }
 
-  function createRow(job) {
-    const tr = document.createElement('tr');
-
-    const idTd = document.createElement('td');
-    const idBtn = document.createElement('button');
-    idBtn.type = 'button';
-    idBtn.className = 'id-btn' + (activeJobId === job.id ? ' active' : '');
-    idBtn.dataset.jobid = job.id;
-    idBtn.textContent = String(job.id || '').slice(0, 8);
-    idTd.appendChild(idBtn);
-
-    const statusTd = document.createElement('td');
-    const status = document.createElement('span');
-    status.className = `state ${statusClass(job.status)}`;
-    status.textContent = job.status || 'queued';
-    statusTd.appendChild(status);
-
-    const progressTd = document.createElement('td');
-    const progressWrap = document.createElement('div');
-    progressWrap.className = 'progress';
-    progressWrap.setAttribute('role', 'progressbar');
-    progressWrap.setAttribute('aria-valuemin', '0');
-    progressWrap.setAttribute('aria-valuemax', '100');
-    const progressFill = document.createElement('span');
-    const percent = pctNumber(job.progress);
-    progressWrap.setAttribute('aria-valuenow', String(percent));
-    progressFill.style.width = `${percent}%`;
-    progressWrap.appendChild(progressFill);
-    const pctText = document.createElement('div');
-    pctText.className = 'mono';
-    pctText.style.fontSize = '0.72rem';
-    pctText.textContent = `${percent.toFixed(1)}%`;
-    progressTd.appendChild(progressWrap);
-    progressTd.appendChild(pctText);
-
-    const etaTd = document.createElement('td');
-    etaTd.textContent = job.eta || '-';
-
-    const speedTd = document.createElement('td');
-    speedTd.textContent = job.speed || '-';
-
-    const urlTd = document.createElement('td');
-    urlTd.className = 'url-cell';
-    const link = document.createElement('a');
-    link.href = job.url || '#';
-    link.rel = 'noopener';
-    link.target = '_blank';
-    link.textContent = job.url || '';
-    urlTd.appendChild(link);
-
-    const errorTd = document.createElement('td');
-    errorTd.className = 'error-cell';
-    errorTd.textContent = job.error || '';
-
-    const actionsTd = document.createElement('td');
-    const actionBtn = buildActionButton(job);
-    if (actionBtn) {
-      actionsTd.appendChild(actionBtn);
-    }
-
-    tr.append(idTd, statusTd, progressTd, etaTd, speedTd, urlTd, errorTd, actionsTd);
-    return tr;
-  }
-
-  function renderJobs(items) {
-    jobsBody.innerHTML = '';
-    if (!items.length) {
-      const tr = document.createElement('tr');
-      const td = document.createElement('td');
-      td.colSpan = 8;
-      td.className = 'empty';
-      td.textContent = 'No jobs yet. Queue one from the home page.';
-      tr.appendChild(td);
-      jobsBody.appendChild(tr);
-      updateKpis(items);
+  function renderJobs(jobs) {
+    if (!jobs.length) {
+      jobsBody.innerHTML = '<tr><td colspan="8" class="empty">No jobs in history</td></tr>';
+      updateKpis({ total: 0, active: 0, errors: 0, done: 0 });
       return;
     }
 
     const fragment = document.createDocumentFragment();
-    items.forEach(job => fragment.appendChild(createRow(job)));
-    jobsBody.appendChild(fragment);
-    updateKpis(items);
+    let total = 0, active = 0, errors = 0, done = 0;
 
-    if (!activeJobId && items.length) {
-      openJob(items[0].id);
-    }
-  }
+    jobs.forEach(job => {
+      total++;
+      if (job.status === 'queued' || job.status === 'downloading') active++;
+      else if (job.status === 'error') errors++;
+      else if (job.status === 'finished') done++;
 
-  function updateKpis(items) {
-    const active = items.filter(j => j.status === 'queued' || j.status === 'downloading').length;
-    const done = items.filter(j => j.status === 'finished').length;
-    const errors = items.filter(j => j.status === 'error').length;
-    kpiTotal.textContent = String(items.length);
-    kpiActive.textContent = String(active);
-    kpiDone.textContent = String(done);
-    kpiErrors.textContent = String(errors);
-  }
+      const tr = document.createElement('tr');
+      tr.dataset.jobid = job.id;
+      tr.dataset.status = job.status;
 
-  async function request(path, options) {
-    const res = await fetch(path, options);
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    return res.json();
-  }
+      // ID column with clickable button
+      const idTd = document.createElement('td');
+      const idButton = document.createElement('button');
+      idButton.type = 'button';
+      idButton.className = 'id-btn';
+      if (job.id === activeJobId) idButton.classList.add('active');
+      idButton.dataset.jobid = job.id;
+      idButton.textContent = job.id.slice(0, 8);
+      idButton.title = `Select job ${job.id}`;
+      idTd.appendChild(idButton);
 
-  const api = {
-    jobs: () => request('/api/status?limit=200'),
-    playlists: () => request('/api/playlists'),
-    output: (jobId) => request(`/job_output/${jobId}`),
-    cancel: (jobId) => request(`/jobs/${jobId}/cancel`, { method: 'POST' }),
-    retry: (jobId) => request(`/jobs/${jobId}/retry`, { method: 'POST' }),
-    clearFinished: () => request('/clear-finished', { method: 'POST' }),
-  };
+      // Status column
+      const statusTd = document.createElement('td');
+      statusTd.className = `status ${statusClass(job.status)}`;
+      statusTd.textContent = job.status;
 
-  async function fetchPlaylists() {
-    try {
-      const data = await api.playlists();
-      playlistsList.innerHTML = '';
-      if (!data.items.length) {
-        playlistsList.innerHTML = '<p class="empty">No playlists saved yet.</p>';
-        return;
-      }
-      data.items.forEach(playlist => {
-        const card = document.createElement('div');
-        card.className = 'playlist-card surface';
-        card.dataset.playlistId = playlist.id;
-        
-        // Format last synced time
-        let lastSyncedText = 'Never';
-        if (playlist.last_synced_at) {
-          const syncedDate = new Date(playlist.last_synced_at);
-          lastSyncedText = syncedDate.toLocaleDateString() + ' ' + syncedDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-        }
-        
-        // Determine mode (audio/video)
-        const mode = playlist.audio_only ? 'Audio' : 'Video';
-        const format = playlist.audio_only ? playlist.audio_format : playlist.quality;
-        
-        // Create card content
-        card.innerHTML = `
-          <div class="playlist-header">
-            <div class="playlist-title">
-              <a href="${playlist.url}" target="_blank" rel="noopener" title="${playlist.url}" class="playlist-name">${playlist.name || 'Untitled playlist'}</a>
-              <button class="btn btn-small btn-muted edit-btn" data-playlist-id="${playlist.id}">Edit</button>
-            </div>
-            <div class="playlist-mode">${mode} • ${format}</div>
-          </div>
-          <div class="playlist-details">
-            <div class="playlist-detail"><span class="detail-label">Category:</span> <span class="detail-value">${playlist.category || 'default'}</span></div>
-            <div class="playlist-detail"><span class="detail-label">Last synced:</span> <span class="detail-value">${lastSyncedText}</span></div>
-          </div>
-          <div class="playlist-actions">
-            <button class="btn btn-primary sync-btn" data-playlist-id="${playlist.id}">Sync Now</button>
-          </div>
-          <div class="playlist-edit-form" style="display: none;">
-            <form class="edit-form" data-playlist-id="${playlist.id}">
-              <div class="form-group">
-                <label for="category-${playlist.id}">Category:</label>
-                <input type="text" id="category-${playlist.id}" name="category" value="${playlist.category || ''}" placeholder="Category name">
-              </div>
-              <div class="form-group">
-                <label for="quality-${playlist.id}">${playlist.audio_only ? 'Audio Format:' : 'Quality:'}</label>
-                <select id="quality-${playlist.id}" name="${playlist.audio_only ? 'audio_format' : 'quality'}">
-                  ${playlist.audio_only ? 
-                    '<option value="mp3"' + (playlist.audio_format === 'mp3' ? ' selected' : '') + '>MP3</option>' +
-                    '<option value="wav"' + (playlist.audio_format === 'wav' ? ' selected' : '') + '>WAV</option>' :
-                    '<option value="max"' + (playlist.quality === 'max' ? ' selected' : '') + '>Max</option>' +
-                    '<option value="2160"' + (playlist.quality === '2160' ? ' selected' : '') + '>2160p</option>' +
-                    '<option value="1440"' + (playlist.quality === '1440' ? ' selected' : '') + '>1440p</option>' +
-                    '<option value="1080"' + (playlist.quality === '1080' ? ' selected' : '') + '>1080p</option>' +
-                    '<option value="720"' + (playlist.quality === '720' ? ' selected' : '') + '>720p</option>' +
-                    '<option value="480"' + (playlist.quality === '480' ? ' selected' : '') + '>480p</option>'
-                  }
-                </select>
-              </div>
-              <div class="form-group">
-                <label for="audio-only-${playlist.id}">Audio Only:</label>
-                <input type="checkbox" id="audio-only-${playlist.id}" name="audio_only" ${playlist.audio_only ? 'checked' : ''}>
-              </div>
-              <div class="form-actions">
-                <button type="button" class="btn btn-muted cancel-edit-btn">Cancel</button>
-                <button type="submit" class="btn btn-primary save-btn">Save</button>
-              </div>
-            </form>
-          </div>
-        `;
-        
-        playlistsList.appendChild(card);
-      });
+      // Progress column with accessible progress bar
+      const progressTd = document.createElement('td');
+      const progressWrap = document.createElement('div');
+      progressWrap.className = 'progress';
+      progressWrap.setAttribute('role', 'progressbar');
+      progressWrap.setAttribute('aria-valuemin', '0');
+      progressWrap.setAttribute('aria-valuemax', '100');
+      progressWrap.setAttribute('aria-valuenow', String(pctNumber(job.progress)));
+      progressWrap.setAttribute('aria-label', `Progress for job ${job.id}`);
       
-      // Add event listeners for edit/sync buttons
-      setupPlaylistEventListeners();
-    } catch (_e) {
-      playlistsList.innerHTML = '<p class="empty">Playlists unavailable.</p>';
-    }
+      const progressFill = document.createElement('span');
+      const percent = pctNumber(job.progress);
+      progressFill.style.width = `${percent}%`;
+      progressWrap.appendChild(progressFill);
+      
+      const pctText = document.createElement('span');
+      pctText.className = 'pct-text';
+      pctText.textContent = `${percent.toFixed(1)}%`;
+      if (job.progress_stage && job.progress_stage !== 'Preparing') {
+        pctText.title = job.progress_stage;
+      }
+      
+      progressTd.appendChild(progressWrap);
+      progressTd.appendChild(pctText);
+
+      // ETA column
+      const etaTd = document.createElement('td');
+      etaTd.textContent = job.eta || '-';
+
+      // Speed column
+      const speedTd = document.createElement('td');
+      speedTd.textContent = job.speed || '-';
+
+      // URL column with title
+      const urlTd = document.createElement('td');
+      const urlLink = document.createElement('a');
+      urlLink.href = job.url;
+      urlLink.target = '_blank';
+      urlLink.rel = 'noopener noreferrer';
+      urlLink.textContent = new URL(job.url).hostname;
+      urlLink.title = job.url;
+      urlTd.appendChild(urlLink);
+
+      // Error column (empty unless error status)
+      const errorTd = document.createElement('td');
+      if (job.error) {
+        errorTd.textContent = job.error;
+        errorTd.title = job.error;
+      }
+
+      // Action column
+      const actionsTd = document.createElement('td');
+      const actionButton = buildActionButton(job);
+      if (actionButton) actionsTd.appendChild(actionButton);
+
+      tr.append(idTd, statusTd, progressTd, etaTd, speedTd, urlTd, errorTd, actionsTd);
+      fragment.appendChild(tr);
+    });
+
+    jobsBody.innerHTML = '';
+    jobsBody.appendChild(fragment);
+    updateKpis({ total, active, errors, done });
   }
-  
-  function setupPlaylistEventListeners() {
-    // Sync buttons
-    document.querySelectorAll('.sync-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        const button = e.target;
-        const playlistId = button.dataset.playlistId;
-        button.disabled = true;
-        button.textContent = 'Syncing...';
-        
-        try { 
-          const data = await request(`/api/playlists/${playlistId}/sync`, { method: 'POST' });
-          showSuccess(`Playlist sync started. Job ID: ${data.job_id}`);
-          await fetchJobs();
-          await fetchPlaylists();
-          // Try to focus on the new job
-          if (data.job_id) {
-            setTimeout(() => {
-              openJob(data.job_id);
-              // Also scroll to it if possible
-              const jobButton = document.querySelector(`.id-btn[data-jobid="${data.job_id}"]`);
-              if (jobButton) {
-                jobButton.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-              }
-            }, 500);
-          }
-        } catch (error) {
-          console.error('Playlist sync failed:', error);
-          if (error.message.includes('429') || error.message.includes('queue')) {
-            showError('Queue is full. Please wait for current jobs to finish.');
-          } else {
-            showError(`Failed to sync playlist: ${error.message || 'Unknown error'}`);
-          }
-          button.disabled = false;
-          button.textContent = 'Sync Now';
-        }
-      });
-    });
-    
-    // Edit buttons
-    document.querySelectorAll('.edit-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const playlistId = btn.dataset.playlistId;
-        const card = btn.closest('.playlist-card');
-        const editForm = card.querySelector('.playlist-edit-form');
-        const details = card.querySelector('.playlist-details');
-        const actions = card.querySelector('.playlist-actions');
-        
-        // Show edit form, hide details and actions
-        editForm.style.display = 'block';
-        details.style.display = 'none';
-        actions.style.display = 'none';
-        btn.style.display = 'none';
-      });
-    });
-    
-    // Cancel edit buttons
-    document.querySelectorAll('.cancel-edit-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const form = btn.closest('.edit-form');
-        const card = form.closest('.playlist-card');
-        const editForm = card.querySelector('.playlist-edit-form');
-        const details = card.querySelector('.playlist-details');
-        const actions = card.querySelector('.playlist-actions');
-        const editBtn = card.querySelector('.edit-btn');
-        
-        // Hide edit form, show details and actions
-        editForm.style.display = 'none';
-        details.style.display = 'block';
-        actions.style.display = 'block';
-        editBtn.style.display = 'inline-block';
-      });
-    });
-    
-    // Save/edit form submissions
-    document.querySelectorAll('.edit-form').forEach(form => {
-      form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const playlistId = form.dataset.playlistId;
-        const saveBtn = form.querySelector('.save-btn');
-        const card = form.closest('.playlist-card');
-        
-        const formData = new FormData(form);
-        const data = {
-          category: formData.get('category') || '',
-          audio_only: formData.get('audio_only') === 'on',
-        };
-        
-        // Get quality or audio_format based on checkbox state
-        if (data.audio_only) {
-          data.audio_format = formData.get('audio_format') || 'mp3';
-        } else {
-          data.quality = formData.get('quality') || 'max';
-        }
-        
-        saveBtn.disabled = true;
-        saveBtn.textContent = 'Saving...';
-        
-        try {
-          const response = await request(`/api/playlists/${playlistId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-          });
-          
-          showSuccess('Playlist settings updated');
-          await fetchPlaylists(); // Refresh to show updated values
-        } catch (error) {
-          console.error('Failed to update playlist:', error);
-          showError(`Failed to update: ${error.message || 'Unknown error'}`);
-          saveBtn.disabled = false;
-          saveBtn.textContent = 'Save';
-        }
-      });
-    });
+
+  function updateKpis({ total, active, errors, done }) {
+    kpiTotal.textContent = String(total);
+    kpiActive.textContent = String(active);
+    kpiErrors.textContent = String(errors);
+    kpiDone.textContent = String(done);
   }
 
   async function fetchJobs() {
@@ -425,7 +337,9 @@
       const data = await api.jobs();
       const items = data.items || [];
       renderJobs(items);
+      updateConnectionState(true); // Mark as successful
     } catch (error) {
+      updateConnectionState(false); // Mark as failed
       console.error('Failed to fetch jobs:', error);
       // Don't show notification for every polling failure, only log it
       // We'll show a persistent warning if multiple consecutive failures occur
@@ -444,7 +358,13 @@
     try {
       const data = await api.output(jobId);
       const pct = pctNumber(data.progress).toFixed(1);
-      outputMeta.textContent = `Job ${jobId} | ${data.status || 'unknown'} | ${pct}% | ETA ${data.eta || '-'} | ${data.speed || '-'}`;
+      let metaText = `Job ${jobId} | ${data.status || 'unknown'} | ${pct}%`;
+      if (data.eta) metaText += ` | ETA ${data.eta}`;
+      if (data.speed) metaText += ` | ${data.speed}`;
+      if (data.progress_stage && data.progress_stage !== 'Preparing') {
+        metaText += ` | ${data.progress_stage}`;
+      }
+      outputMeta.textContent = metaText;
       outputPre.textContent = data.output || '(No output yet)';
       outputPre.scrollTop = outputPre.scrollHeight;
     } catch (_e) {
@@ -496,31 +416,24 @@
       if (action === 'cancel') {
         data = await api.cancel(jobId);
         showSuccess(data.message || 'Job cancelled successfully');
-      }
-      if (action === 'retry') {
+      } else if (action === 'retry') {
         data = await api.retry(jobId);
         showSuccess(data.message || 'Job re-queued successfully');
       }
       await fetchJobs();
-      if (activeJobId === jobId) {
-        await fetchOutput(jobId);
-      }
     } catch (error) {
-      console.error('Action failed:', error);
+      console.error(`Job ${action} failed:`, error);
       showError(`Failed to ${action} job: ${error.message || 'Unknown error'}`);
-      // Restore button after error
+    } finally {
       actionButton.disabled = false;
       actionButton.textContent = originalText;
-      pendingActions.delete(actionKey);
-      return;
-    } finally {
-      // Button will be recreated by fetchJobs, so no need to restore here
       pendingActions.delete(actionKey);
     }
   });
 
+  // Clear finished jobs
   clearBtn.addEventListener('click', async () => {
-    if (!window.confirm('Clear finished/error/cancelled jobs?')) return;
+    if (!window.confirm('Clear completed history? This will remove finished, error, and cancelled job records but will NOT delete downloaded files.')) return;
     
     // Set button to pending state
     clearBtn.disabled = true;
@@ -529,19 +442,20 @@
     
     try {
       const data = await api.clearFinished();
-      showSuccess(data.message || 'Cleared finished jobs');
+      showSuccess(data.message || 'Cleared completed history');
       outputMeta.textContent = data.message;
       await fetchJobs();
     } catch (error) {
       console.error('Clear failed:', error);
-      showError(`Failed to clear finished jobs: ${error.message || 'Unknown error'}`);
-      outputMeta.textContent = 'Failed to clear finished jobs';
+      showError(`Failed to clear history: ${error.message || 'Unknown error'}`);
+      outputMeta.textContent = 'Failed to clear history';
     } finally {
       clearBtn.disabled = false;
       clearBtn.textContent = originalText;
     }
   });
 
+  // Refresh button
   refreshBtn.addEventListener('click', async () => {
     // Set button to pending state
     refreshBtn.disabled = true;
@@ -549,7 +463,7 @@
     refreshBtn.textContent = 'Refreshing...';
     
     try {
-      await fetchJobs();
+      await Promise.all([fetchJobs(), fetchPlaylists()]);
       showSuccess('Dashboard refreshed');
     } catch (error) {
       console.error('Refresh failed:', error);
@@ -560,17 +474,66 @@
     }
   });
 
+  // Playlist functions (simplified for this example)
+  async function fetchPlaylists() {
+    try {
+      const data = await api.playlists();
+      const items = data.items || [];
+      // Simple render for playlists
+      if (items.length === 0) {
+        playlistsList.innerHTML = '<p class="empty">No saved playlists</p>';
+      } else {
+        playlistsList.innerHTML = items.map(playlist => `
+          <div class="playlist-card surface">
+            <div class="playlist-details">
+              <h3>${playlist.name}</h3>
+              <p>Category: ${playlist.category} | Quality: ${playlist.quality}</p>
+              <button class="btn btn-primary sync-btn" data-playlist-id="${playlist.id}">Sync Now</button>
+            </div>
+          </div>
+        `).join('');
+        
+        // Add sync button handlers
+        document.querySelectorAll('.sync-btn').forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            const playlistId = btn.dataset.playlistId;
+            btn.disabled = true;
+            btn.textContent = 'Syncing...';
+            try {
+              const data = await api.syncPlaylist(playlistId);
+              showSuccess(`Playlist sync started: job ${data.job_id}`);
+              await fetchJobs();
+            } catch (error) {
+              console.error('Sync failed:', error);
+              showError(`Sync failed: ${error.message || 'Unknown error'}`);
+            } finally {
+              btn.disabled = false;
+              btn.textContent = 'Sync Now';
+            }
+          });
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch playlists:', error);
+      // Don't show error for playlist fetch failures
+    }
+  }
+
+  // Visibility change handling
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
-      fetchJobs();
-      if (activeJobId) fetchOutput(activeJobId);
+      restartPolling();
     }
   });
 
+  // Setup and initialization
   window.addEventListener('load', async () => {
+    setupConnectionWarningDismiss();
+    updateLastUpdatedTime(); // Initial update
+    
     await fetchJobs();
     await fetchPlaylists();
     if (activeJobId) openJob(activeJobId);
-    setInterval(fetchJobs, 3000);
+    restartPolling();
   });
 })();

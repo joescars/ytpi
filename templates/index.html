@@ -1,103 +1,73 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ytpi | Queue Download</title>
-  <link rel="stylesheet" href="/static/ui.css">
-  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
-  <link rel="manifest" href="/static/site.webmanifest">
-  <meta name="theme-color" content="#ffffff">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="ytpi">
-</head>
-<body>
-  <main class="shell stack enter">
-    <header class="topbar">
-      <a href="/" class="brand">ytpi<small>local downloader</small></a>
-      <a class="btn btn-muted" href="/status">Dashboard</a>
-    </header>
+{% extends "base.html" %}
+{% block title %}Queue Download{% endblock %}
+{% block content %}
+  <section class="surface" style="padding: 1.2rem;">
+    <div class="stack" style="gap:0.35rem; margin-bottom: 0.8rem;">
+      <h1>Queue Download</h1>
+      <p class="text-muted">Download videos from YouTube as MP4 or audio‑only.</p>
+    </div>
 
-    <section class="surface" style="padding: 1.2rem;">
-      <div class="stack" style="gap:0.35rem; margin-bottom: 0.8rem;">
-        <h1 class="page-title">Queue YouTube Downloads</h1>
-        <p class="subtle">Paste one URL per line or comma-separated. Optimized for desktop and mobile.</p>
+    <form method="post" action="/download" enctype="multipart/form-data">
+      <div>
+        <label for="url">URLs (one per line)</label>
+        <textarea id="url" name="url" rows="6" placeholder="https://youtube.com/watch?v=...
+https://youtu.be/..." required autofocus>{{ url_value }}</textarea>
       </div>
 
-      <form id="download-form" class="form-grid" action="/download" method="POST">
-        <div>
-          <label for="url">Video or Playlist URLs</label>
-          <textarea id="url" name="url" placeholder="https://youtube.com/watch?v=..." required{% if error %} aria-describedby="form-error"{% endif %}>{{ url }}</textarea>
-        </div>
+      <div>
+        <label for="category">Category</label>
+        <select id="category" name="category">
+          <option value="" disabled {% if not category %}selected{% endif %}>— Choose a category —</option>
+          {% for cat in categories %}
+          <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>{{ cat }}</option>
+          {% endfor %}
+        </select>
+      </div>
 
-        <div id="categoryWrap">
-          <label for="category">Category</label>
-          <select id="category" name="category">
-            <option value="" {% if not category %}selected{% endif %}>No Category</option>
-            {% if categories %}
-              {% for cat in categories %}
-                <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>{{ cat }}</option>
-              {% endfor %}
-            {% endif %}
-            {# Include the submitted category if it's not empty and not already in the list #}
-            {% if category and category != "__custom__" %}
-              {% if not categories or category not in categories %}
-                <option value="{{ category }}" selected>{{ category }}</option>
-              {% endif %}
-            {% endif %}
-            <option value="__custom__" {% if category == "__custom__" %}selected{% endif %}>Custom...</option>
-          </select>
-          <p class="help">Allowed: letters, numbers, spaces, <span class="mono">_ - .</span></p>
-        </div>
+      <div>
+        <label for="customCategory">Custom category (optional)</label>
+        <input type="text" id="customCategory" name="custom_category" placeholder="my-playlist-name" value="{{ custom_category }}">
+      </div>
 
-        <div id="customCategoryWrap" hidden>
-          <label for="customCategory">Custom Category Name</label>
-          <input id="customCategory" name="customCategory" type="text" placeholder="Road Trip 2026" value="{{ customCategory }}">
-        </div>
+      <div>
+        <label for="quality">Quality</label>
+        <select id="quality" name="quality">
+          <option value="max" selected>Max Quality (Default)</option>
+          <option value="2160" >2160p (4K)</option>
+          <option value="1440" >1440p (2K)</option>
+          <option value="1080" >1080p (Full HD)</option>
+          <option value="720" >720p (HD)</option>
+          <option value="480" >480p</option>
+        </select>
+      </div>
 
-        <div>
-          <label for="quality">Quality</label>
-          <select id="quality" name="quality">
-            <option value="max" {% if quality == "max" or not quality %}selected{% endif %}>Max Quality (Default)</option>
-            <option value="2160" {% if quality == "2160" %}selected{% endif %}>2160p (4K)</option>
-            <option value="1440" {% if quality == "1440" %}selected{% endif %}>1440p (2K)</option>
-            <option value="1080" {% if quality == "1080" %}selected{% endif %}>1080p (Full HD)</option>
-            <option value="720" {% if quality == "720" %}selected{% endif %}>720p (HD)</option>
-            <option value="480" {% if quality == "480" %}selected{% endif %}>480p</option>
-          </select>
-        </div>
+      <div>
+        <label class="checkbox-label">
+          <input id="audioOnly" name="audio_only" type="checkbox" value="on" >
+          Download audio only
+        </label>
+      </div>
 
-        <div>
-          <label class="checkbox-label">
-            <input id="audioOnly" name="audio_only" type="checkbox" value="on" {% if audio_only %}checked{% endif %}>
-            Download audio only
-          </label>
-        </div>
+      <div id="audioFormatWrap" hidden>
+        <label for="audioFormat">Audio Format</label>
+        <select id="audioFormat" name="audio_format">
+          <option value="mp3" selected>MP3</option>
+          <option value="wav" >WAV</option>
+        </select>
+      </div>
 
-        <div id="audioFormatWrap" hidden>
-          <label for="audioFormat">Audio Format</label>
-          <select id="audioFormat" name="audio_format">
-            <option value="mp3" {% if audio_format == "mp3" or not audio_format %}selected{% endif %}>MP3</option>
-            <option value="wav" {% if audio_format == "wav" %}selected{% endif %}>WAV</option>
-          </select>
-        </div>
+      
+      {% if error %}
+        <div id="form-error" class="error-box" role="alert">{{ error }}</div>
+      {% endif %}
 
-        {% if error %}
-          <div id="form-error" class="error-box" role="alert">{{ error }}</div>
-        {% endif %}
-
-        <div class="actions">
-          <button id="submit-btn" type="submit" class="btn btn-primary">Queue Download</button>
-          <a href="/status" class="btn btn-muted">Open Dashboard</a>
-        </div>
-      </form>
-    </section>
-  </main>
-
+      <div class="actions">
+        <button id="submit-btn" type="submit" class="btn btn-primary">Queue Download</button>
+        <a href="/status" class="btn btn-muted">Open Dashboard</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}
+{% block scripts %}
   <script src="/static/index.js" defer></script>
-</body>
-</html>
+{% endblock %}
