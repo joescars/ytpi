@@ -11,12 +11,12 @@
       <div>
         <label for="url">URLs (one per line)</label>
         <textarea id="url" name="url" rows="6" placeholder="https://youtube.com/watch?v=...
-https://youtu.be/..." required autofocus>{{ url_value }}</textarea>
+https://youtu.be/..." required autofocus {% if error %}aria-describedby="form-error"{% endif %}>{{ url }}</textarea>
       </div>
 
-      <div>
+      <div id="categoryWrap" {% if audio_only %}hidden{% endif %}>
         <label for="category">Category</label>
-        <select id="category" name="category">
+        <select id="category" name="category" {% if audio_only %}disabled{% endif %}>
           <option value="" disabled {% if not category %}selected{% endif %}>— Choose a category —</option>
           {% for cat in categories %}
           <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>{{ cat }}</option>
@@ -24,36 +24,41 @@ https://youtu.be/..." required autofocus>{{ url_value }}</textarea>
         </select>
       </div>
 
-      <div>
+      <div id="customCategoryWrap" {% if category != '__custom__' %}hidden{% endif %}>
         <label for="customCategory">Custom category (optional)</label>
-        <input type="text" id="customCategory" name="custom_category" placeholder="my-playlist-name" value="{{ custom_category }}">
+        <input type="text" id="customCategory" name="custom_category" placeholder="my-playlist-name" value="{{ custom_category }}" {% if category == '__custom__' %}required{% endif %}>
       </div>
 
-      <div>
+      <div id="qualityWrap" {% if audio_only %}hidden{% endif %}>
         <label for="quality">Quality</label>
-        <select id="quality" name="quality">
-          <option value="max" selected>Max Quality (Default)</option>
-          <option value="2160" >2160p (4K)</option>
-          <option value="1440" >1440p (2K)</option>
-          <option value="1080" >1080p (Full HD)</option>
-          <option value="720" >720p (HD)</option>
-          <option value="480" >480p</option>
+        <select id="quality" name="quality" {% if audio_only %}disabled{% endif %}>
+          <option value="max" {% if quality == 'max' or not quality %}selected{% endif %}>Max Quality (Default)</option>
+          <option value="2160" {% if quality == '2160' %}selected{% endif %}>2160p (4K)</option>
+          <option value="1440" {% if quality == '1440' %}selected{% endif %}>1440p (2K)</option>
+          <option value="1080" {% if quality == '1080' %}selected{% endif %}>1080p (Full HD)</option>
+          <option value="720" {% if quality == '720' %}selected{% endif %}>720p (HD)</option>
+          <option value="480" {% if quality == '480' %}selected{% endif %}>480p</option>
         </select>
       </div>
 
       <div>
         <label class="checkbox-label">
-          <input id="audioOnly" name="audio_only" type="checkbox" value="on" >
+          <input id="audioOnly" name="audio_only" type="checkbox" value="on" {% if audio_only %}checked{% endif %}>
           Download audio only
         </label>
       </div>
 
-      <div id="audioFormatWrap" hidden>
+      <div id="audioFormatWrap" {% if not audio_only %}hidden{% endif %}>
         <label for="audioFormat">Audio Format</label>
         <select id="audioFormat" name="audio_format">
-          <option value="mp3" selected>MP3</option>
-          <option value="wav" >WAV</option>
+          <option value="mp3" {% if audio_format == 'mp3' or not audio_format %}selected{% endif %}>MP3</option>
+          <option value="wav" {% if audio_format == 'wav' %}selected{% endif %}>WAV</option>
         </select>
+        {% if audio_only %}
+        <p class="text-muted" style="margin-top: 0.5rem; font-size: 0.9em;">
+          Audio-only downloads are stored in the <code>audio-only</code> category. Video quality settings are not used.
+        </p>
+        {% endif %}
       </div>
 
       

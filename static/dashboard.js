@@ -268,7 +268,8 @@
       progressWrap.setAttribute('aria-valuemin', '0');
       progressWrap.setAttribute('aria-valuemax', '100');
       progressWrap.setAttribute('aria-valuenow', String(pctNumber(job.progress)));
-      progressWrap.setAttribute('aria-label', `Progress for job ${job.id}`);
+      const jobLabel = job.title || job.id;
+      progressWrap.setAttribute('aria-label', `Progress for ${jobLabel}`);
       
       const progressFill = document.createElement('span');
       const percent = pctNumber(job.progress);
