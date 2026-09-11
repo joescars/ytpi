@@ -211,7 +211,9 @@ def create_app() -> Flask:
         limit = parse_int(request.args.get("limit", "200"), 200, 1)
         offset = parse_int(request.args.get("offset", "0"), 0, 0)
         status_filter = (request.args.get("status") or "").strip()
-        jobs, total = repo.list_jobs(limit=limit, offset=offset, status=status_filter)
+        category_filter = (request.args.get("category") or "").strip()
+        search_filter = (request.args.get("search") or "").strip()
+        jobs, total = repo.list_jobs(limit=limit, offset=offset, status=status_filter, category=category_filter, search=search_filter)
         return jsonify({"items": jobs, "total": total, "limit": limit, "offset": offset})
 
     @app.route("/api/playlists", methods=["GET"])
@@ -265,7 +267,8 @@ def create_app() -> Flask:
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 429
-        repo.mark_playlist_synced(playlist_id)
+        # Update playlist sync state to "requested" with the job ID
+        repo.update_playlist_sync_state(playlist_id, "requested", sync_job_id=job_id)
         return jsonify({"job_id": job_id}), 202
 
     @app.route("/job_output/<job_id>")
