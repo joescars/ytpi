@@ -66,11 +66,21 @@ def create_app() -> Flask:
         form_values = {
             'url': form_data.get('url', '') if form_data else '',
             'category': form_data.get('category', '') if form_data else '',
-            'customCategory': form_data.get('customCategory', '') if form_data else '',
+            'custom_category': form_data.get('customCategory', '') if form_data else '',
             'quality': form_data.get('quality', '') if form_data else '',
             'audio_only': audio_only_checked,
             'audio_format': form_data.get('audio_format', '') if form_data else '',
         }
+        
+        # Add submitted category to the list if it's not already there
+        submitted_category = form_values['category']
+        if submitted_category and submitted_category not in categories:
+            if submitted_category == "__custom__":
+                # Add __custom__ option for the dropdown
+                categories.append("__custom__")
+            else:
+                categories.append(submitted_category)
+            categories.sort()
         
         return render_template(
             "index.html", 
@@ -284,6 +294,10 @@ def create_app() -> Flask:
             "speed": job.get("speed"),
             "filename": job.get("filename"),
             "error": job.get("error"),
+            "progress_stage": job.get("progress_stage"),
+            "playlist_item_position": job.get("playlist_item_position"),
+            "playlist_item_total": job.get("playlist_item_total"),
+            "title": job.get("title"),
         })
 
     @app.route("/jobs/<job_id>/cancel", methods=["POST"])
