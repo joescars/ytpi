@@ -2,12 +2,12 @@ import os
 import queue
 import re
 import signal
+import re
 import subprocess
 import threading
 import time
 import uuid
-import json
-from typing import Any
+from typing import Any, Optional
 
 from .config import AUDIO_ONLY_CATEGORY, Config, get_playlist_id, resolve_category_dir, setup_logging, utc_now, validate_audio_format, validate_quality
 from .repository import JobRepository
@@ -17,9 +17,6 @@ DESTINATION_RE = re.compile(r"\[download\]\s+Destination:\s+(.+)")
 PLAYLIST_TITLE_RE = re.compile(
     r"\[(?:youtube:tab|download)\]\s+(?:Downloading|Finished downloading) playlist:\s+(.+)",
     re.IGNORECASE,
-)
-PLAYLIST_SYNC_RESULT_RE = re.compile(
-    r"\[download\]\s+(?:Downloading\s+)?(\d+)/(\d+)\s+videos?.*?(?:have already been downloaded)?.*?(?:downloaded)?"
 )
 PROGRESS_FLUSH_INTERVAL_SECONDS = 1.0
 
@@ -90,7 +87,7 @@ class DownloadManager:
             # Job reached a terminal state (e.g. finished) between our read and the update.
             return True
 
-        # Update playlist sync state to "failed" without updating last_successful_sync_at
+        # Update playlist sync state to "failed" if this is a playlist job
         playlist = self.repo.get_playlist_by_url(job["url"])
         if playlist:
             self.repo.update_playlist_sync_state(playlist["id"], "failed")
@@ -213,12 +210,6 @@ class DownloadManager:
         else:
             log_context["quality"] = validate_quality(job["quality"])
         self.logger.info("Starting download", extra={"context": log_context})
-        
-        # When a playlist job starts downloading, update playlist to "active" state
-        if playlist_id:
-            playlist = self.repo.get_playlist_by_url(job["url"])
-            if playlist:
-                self.repo.update_playlist_sync_state(playlist["id"], "active", sync_job_id=job_id)
 
         timed_out = False
         output_tail = ""
@@ -246,7 +237,6 @@ class DownloadManager:
             if proc.stdout is not None:
                 pending_updates: dict[str, Any] = {}
                 last_flush = 0.0
-                sync_result = {"discovered": 0, "downloaded": 0, "already_present": 0, "failed": 0}
                 for line in proc.stdout:
                     output_tail = (output_tail + line)[-self.config.max_output_chars :]
 
@@ -270,34 +260,17 @@ class DownloadManager:
                     if playlist_title_match:
                         self.repo.update_playlist_name(job["url"], playlist_title_match.group(1).strip())
 
-                    # Parse playlist sync results
-                    sync_result_match = PLAYLIST_SYNC_RESULT_RE.search(line)
-                    if sync_result_match:
-                        downloaded_or_current = int(sync_result_match.group(1))
-                        total = int(sync_result_match.group(2))
-                        sync_result["discovered"] = total
-                        
-                        # Try to infer if this is "already downloaded" vs "downloaded"
-                        if "already been downloaded" in line:
-                            sync_result["already_present"] = downloaded_or_current
-                        elif "downloaded" in line:
-                            sync_result["downloaded"] = downloaded_or_current
-
                     now = time.monotonic()
                     # Persist on a cadence rather than on every line - yt-dlp can emit dozens
                     # of progress lines per second, and each write is a synchronous SQLite
                     # commit. Always flush on a destination change so the filename shows up
                     # promptly.
                     if destination_match or now - last_flush >= PROGRESS_FLUSH_INTERVAL_SECONDS:
-                        if sync_result["discovered"] > 0:
-                            pending_updates["sync_result"] = json.dumps(sync_result)
                         self.repo.update_job(job_id, output=output_tail, **pending_updates)
                         pending_updates = {}
                         last_flush = now
 
                 if pending_updates or output_tail:
-                    if sync_result["discovered"] > 0:
-                        pending_updates["sync_result"] = json.dumps(sync_result)
                     self.repo.update_job(job_id, output=output_tail, **pending_updates)
 
             proc.wait()
@@ -312,14 +285,27 @@ class DownloadManager:
 
         final_output = output_tail
         if proc.returncode == 0 and not timed_out:
-            # Update playlist sync state to "successful" with timestamp
+            # Check if this is a playlist job
             playlist = self.repo.get_playlist_by_url(job["url"])
             if playlist:
+                # Parse sync results from output
+                sync_results = self._parse_playlist_sync_output(final_output)
+                # Update playlist sync results
+                self.repo.update_playlist_sync_results(
+                    playlist["id"],
+                    discovered_count=sync_results["discovered_count"],
+                    downloaded_count=sync_results["downloaded_count"],
+                    already_present_count=sync_results["already_present_count"],
+                    failed_count=sync_results["failed_count"],
+                    last_sync_result=sync_results["last_sync_result"]
+                )
+                # Update playlist sync state to successful
                 self.repo.update_playlist_sync_state(
-                    playlist["id"], 
-                    "successful", 
+                    playlist["id"],
+                    "successful",
                     last_successful_sync_at=utc_now()
                 )
+            
             self.repo.update_job(job_id, status="finished", output=final_output, progress=100.0, finished_at=utc_now())
             return
 
@@ -331,9 +317,116 @@ class DownloadManager:
             self.download_queue.put(job_id)
             return
 
-        # Update playlist sync state to "failed" without updating last_successful_sync_at
+        # Update playlist sync state to failed if this is a playlist job
         playlist = self.repo.get_playlist_by_url(job["url"])
         if playlist:
             self.repo.update_playlist_sync_state(playlist["id"], "failed")
         
         self.repo.update_job(job_id, status="error", output=final_output, error=error_tail, finished_at=utc_now())
+
+    @staticmethod
+    def _parse_playlist_sync_output(output: str) -> dict:
+        """Parse yt-dlp output to extract playlist sync result counts.
+        
+        Returns:
+            dict with keys: discovered_count, downloaded_count, 
+            already_present_count, failed_count, last_sync_result
+        """
+        lines = output.split('\n')
+        
+        discovered = 0
+        downloaded = 0
+        already_present = 0
+        failed = 0
+        items = []
+        
+        # Look for "Downloading N videos" line
+        for line in lines:
+            if "Downloading" in line and "videos" in line:
+                # Try to extract number
+                match = re.search(r'Downloading\s+(\d+)\s+videos', line)
+                if match:
+                    discovered = int(match.group(1))
+                    break
+        
+        # Parse each item
+        current_item = None
+        for i, line in enumerate(lines):
+            # Look for "Downloading item X of Y"
+            item_match = re.search(r'Downloading item (\d+) of (\d+)', line)
+            if item_match:
+                current_item = int(item_match.group(1))
+                item_total = int(item_match.group(2))
+                discovered = item_total  # More accurate than the "videos" line
+                
+                # Default status is unknown
+                item_status = "unknown"
+                item_filename = None
+                item_error = None
+                
+                # Check next few lines for this item's result
+                for j in range(i + 1, min(i + 10, len(lines))):
+                    next_line = lines[j]
+                    
+                    # Check for success
+                    if "Destination:" in next_line:
+                        dest_match = re.search(r'Destination:\s+(.+)', next_line)
+                        if dest_match:
+                            item_filename = dest_match.group(1).strip()
+                            item_status = "downloaded"
+                            break  # Found status, stop checking
+                    
+                    # Check for already downloaded
+                    if "has already been downloaded" in next_line:
+                        item_status = "already_present"
+                        # Try to extract filename
+                        already_match = re.search(r'\[download\]\s+(.+)\s+has already been downloaded', next_line)
+                        if already_match:
+                            item_filename = already_match.group(1).strip()
+                        break  # Found status, stop checking
+                    
+                    # Check for error (but not general yt-dlp errors)
+                    if "ERROR:" in next_line and "Downloading item" not in next_line:
+                        item_status = "failed"
+                        item_error = next_line.strip()
+                        break  # Found status, stop checking
+                
+                items.append({
+                    "item": current_item,
+                    "status": item_status,
+                    "filename": item_filename,
+                    "error": item_error
+                })
+        
+        # Count statuses from items
+        if items:
+            downloaded = sum(1 for item in items if item["status"] == "downloaded")
+            already_present = sum(1 for item in items if item["status"] == "already_present")
+            failed = sum(1 for item in items if item["status"] == "failed")
+            # Unknown items are not counted
+        else:
+            # Fallback: try to count from output patterns
+            downloaded = output.count("Destination:")
+            already_present = output.count("has already been downloaded")
+            failed = output.count("ERROR:") + output.count("WARNING:")
+        
+        # Ensure discovered is at least the sum of counted items
+        if discovered == 0:
+            discovered = downloaded + already_present + failed
+        
+        # Build result dict
+        last_sync_result = {
+            "discovered": discovered,
+            "downloaded": downloaded,
+            "already_present": already_present,
+            "failed": failed,
+            "items": items
+        }
+        
+        return {
+            "discovered_count": discovered,
+            "downloaded_count": downloaded,
+            "already_present_count": already_present,
+            "failed_count": failed,
+            "last_sync_result": last_sync_result
+        }

@@ -475,49 +475,194 @@
     }
   });
 
-  // Playlist functions (simplified for this example)
-  async function fetchPlaylists() {
+  // Playlist functions with surgical updates
+  const playlistCardStates = new Map(); // playlistId -> {hash, element}
+  let lastPlaylistFetchTime = 0;
+  let playlistFetchInProgress = false;
+  
+  async function fetchPlaylists(force = false) {
+    // Prevent overlapping requests
+    if (playlistFetchInProgress && !force) {
+      return;
+    }
+    
+    // Skip if tab is hidden (battery/performance)
+    if (document.hidden && !force) {
+      return;
+    }
+    
+    // Throttle polling to once every 3 seconds
+    const now = Date.now();
+    if (now - lastPlaylistFetchTime < 3000 && !force) {
+      return;
+    }
+    
+    playlistFetchInProgress = true;
+    lastPlaylistFetchTime = now;
+    
     try {
       const data = await api.playlists();
       const items = data.items || [];
-      // Simple render for playlists
+      
       if (items.length === 0) {
-        playlistsList.innerHTML = '<p class="empty">No saved playlists</p>';
+        if (playlistsList.children.length === 0 || 
+            (playlistsList.children.length === 1 && playlistsList.children[0].tagName === 'P')) {
+          playlistsList.innerHTML = '<p class="empty">No saved playlists</p>';
+        }
+        playlistCardStates.clear();
       } else {
-        playlistsList.innerHTML = items.map(playlist => `
-          <div class="playlist-card surface">
+        // Track focused element before updates
+        const activeElement = document.activeElement;
+        const activePlaylistId = activeElement?.closest('.playlist-card')?.dataset?.playlistId;
+        
+        // Create or update cards surgically
+        const container = document.createDocumentFragment();
+        const updatedIds = new Set();
+        
+        items.forEach(playlist => {
+          updatedIds.add(playlist.id.toString());
+          
+          // Create hash of playlist state for change detection
+          const stateHash = JSON.stringify({
+            name: playlist.name,
+            category: playlist.category,
+            quality: playlist.quality,
+            sync_status: playlist.sync_status,
+            sync_discovered_count: playlist.sync_discovered_count,
+            sync_downloaded_count: playlist.sync_downloaded_count,
+            sync_already_present_count: playlist.sync_already_present_count,
+            sync_failed_count: playlist.sync_failed_count,
+            last_synced_at: playlist.last_synced_at
+          });
+          
+          const existing = playlistCardStates.get(playlist.id.toString());
+          
+          // Reuse element if state unchanged and it's already in DOM
+          if (existing && existing.hash === stateHash && 
+              playlistsList.contains(existing.element)) {
+            container.appendChild(existing.element);
+            return;
+          }
+          
+          // Create new or update existing card
+          const card = existing?.element || document.createElement('div');
+          card.className = 'playlist-card surface';
+          card.dataset.playlistId = playlist.id.toString();
+          
+          // Build sync status display
+          let syncStatusHtml = '';
+          if (playlist.sync_status) {
+            const statusClass = playlist.sync_status === 'successful' ? 'success' : 
+                               playlist.sync_status === 'failed' ? 'error' : 'muted';
+            const statusText = playlist.sync_status.charAt(0).toUpperCase() + playlist.sync_status.slice(1);
+            syncStatusHtml = `<span class="badge badge-${statusClass}">${statusText}</span>`;
+            
+            // Add sync results if available
+            if (playlist.sync_discovered_count !== null && playlist.sync_discovered_count !== undefined) {
+              const results = [];
+              if (playlist.sync_discovered_count > 0) results.push(`📋 ${playlist.sync_discovered_count} total`);
+              if (playlist.sync_downloaded_count > 0) results.push(`⬇️ ${playlist.sync_downloaded_count} new`);
+              if (playlist.sync_already_present_count > 0) results.push(`✓ ${playlist.sync_already_present_count} existing`);
+              if (playlist.sync_failed_count > 0) results.push(`❌ ${playlist.sync_failed_count} failed`);
+              
+              if (results.length > 0) {
+                syncStatusHtml += `<div class="sync-results text-muted" style="font-size: 0.85em; margin-top: 0.25rem;">${results.join(' • ')}</div>`;
+              }
+            }
+          }
+          
+          const lastSynced = playlist.last_synced_at ? 
+            `<div class="text-muted" style="font-size: 0.85em; margin-top: 0.25rem;">Last synced: ${formatTimeAgo(playlist.last_synced_at)}</div>` : '';
+          
+          card.innerHTML = `
             <div class="playlist-details">
-              <h3>${playlist.name}</h3>
+              <div class="playlist-header">
+                <h3 class="playlist-title">${playlist.name}</h3>
+                ${syncStatusHtml}
+              </div>
               <p>Category: ${playlist.category} | Quality: ${playlist.quality}</p>
+              ${lastSynced}
               <button class="btn btn-primary sync-btn" data-playlist-id="${playlist.id}">Sync Now</button>
             </div>
-          </div>
-        `).join('');
-        
-        // Add sync button handlers
-        document.querySelectorAll('.sync-btn').forEach(btn => {
-          btn.addEventListener('click', async (e) => {
-            const playlistId = btn.dataset.playlistId;
-            btn.disabled = true;
-            btn.textContent = 'Syncing...';
-            try {
-              const data = await api.syncPlaylist(playlistId);
-              showSuccess(`Playlist sync started: job ${data.job_id}`);
-              await fetchJobs();
-            } catch (error) {
-              console.error('Sync failed:', error);
-              showError(`Sync failed: ${error.message || 'Unknown error'}`);
-            } finally {
-              btn.disabled = false;
-              btn.textContent = 'Sync Now';
-            }
-          });
+          `;
+          
+          container.appendChild(card);
+          playlistCardStates.set(playlist.id.toString(), { hash: stateHash, element: card });
         });
+        
+        // Remove cards for playlists that no longer exist
+        for (const [playlistId, state] of playlistCardStates.entries()) {
+          if (!updatedIds.has(playlistId)) {
+            if (state.element && state.element.parentNode === playlistsList) {
+              state.element.remove();
+            }
+            playlistCardStates.delete(playlistId);
+          }
+        }
+        
+        // Replace container contents in one operation
+        if (container.children.length > 0) {
+          playlistsList.innerHTML = '';
+          playlistsList.appendChild(container);
+        }
+        
+        // Add sync button handlers (only to new cards)
+        document.querySelectorAll('.sync-btn').forEach(btn => {
+          if (!btn.dataset.handlerAttached) {
+            btn.dataset.handlerAttached = 'true';
+            btn.addEventListener('click', async (e) => {
+              const playlistId = btn.dataset.playlistId;
+              btn.disabled = true;
+              btn.textContent = 'Syncing...';
+              try {
+                const data = await api.syncPlaylist(playlistId);
+                showSuccess(`Playlist sync started: job ${data.job_id}`);
+                await fetchJobs(); // Refresh jobs to show the new sync job
+                // Force playlist refresh after 1 second to show updated status
+                setTimeout(() => fetchPlaylists(true), 1000);
+              } catch (error) {
+                console.error('Sync failed:', error);
+                showError(`Sync failed: ${error.message || 'Unknown error'}`);
+              } finally {
+                btn.disabled = false;
+                btn.textContent = 'Sync Now';
+              }
+            });
+          }
+        });
+        
+        // Restore focus if it was on a playlist card
+        if (activeElement && activePlaylistId) {
+          const restoredCard = playlistsList.querySelector(`[data-playlist-id="${activePlaylistId}"]`);
+          if (restoredCard) {
+            const restoredElement = restoredCard.querySelector(activeElement.tagName.toLowerCase());
+            if (restoredElement && restoredElement.type === activeElement.type) {
+              restoredElement.focus();
+            }
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to fetch playlists:', error);
       // Don't show error for playlist fetch failures
+    } finally {
+      playlistFetchInProgress = false;
     }
+  }
+  
+  // Helper to format time ago
+  function formatTimeAgo(timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+    return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
   }
 
   // Visibility change handling

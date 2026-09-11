@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
@@ -25,13 +26,11 @@ class JobRepository:
                 CREATE TABLE IF NOT EXISTS jobs (
                     id TEXT PRIMARY KEY,
                     url TEXT NOT NULL,
-                    title TEXT,
                     status TEXT NOT NULL,
                     category TEXT NOT NULL DEFAULT '',
                     quality TEXT NOT NULL DEFAULT 'max',
                     audio_only INTEGER NOT NULL DEFAULT 0,
                     audio_format TEXT NOT NULL DEFAULT '',
-                    progress_stage TEXT,
                     output TEXT NOT NULL DEFAULT '',
                     error TEXT,
                     progress REAL,
@@ -42,8 +41,7 @@ class JobRepository:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     started_at TEXT,
-                    finished_at TEXT,
-                    sync_result TEXT
+                    finished_at TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
                 CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
@@ -55,17 +53,22 @@ class JobRepository:
                     quality TEXT NOT NULL DEFAULT 'max',
                     audio_only INTEGER NOT NULL DEFAULT 0,
                     audio_format TEXT NOT NULL DEFAULT '',
+                    last_synced_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
                     sync_status TEXT NOT NULL DEFAULT 'idle',
                     sync_job_id TEXT,
-                    last_synced_at TEXT,
                     last_successful_sync_at TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    discovered_count INTEGER,
+                    downloaded_count INTEGER,
+                    already_present_count INTEGER,
+                    failed_count INTEGER,
+                    last_sync_result TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_playlists_updated_at ON playlists(updated_at);
                 """
             )
-            for col, definition in [("audio_only", "INTEGER NOT NULL DEFAULT 0"), ("audio_format", "TEXT NOT NULL DEFAULT ''"), ("title", "TEXT"), ("progress_stage", "TEXT"), ("sync_result", "TEXT")]:
+            for col, definition in [("audio_only", "INTEGER NOT NULL DEFAULT 0"), ("audio_format", "TEXT NOT NULL DEFAULT ''")]:
                 try:
                     self.conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {definition}")
                 except sqlite3.OperationalError:
@@ -75,21 +78,6 @@ class JobRepository:
     def reset_stale_downloading_jobs(self) -> None:
         with self._lock:
             now = utc_now()
-            # Get playlist jobs that were downloading
-            rows = self.conn.execute(
-                "SELECT id, url FROM jobs WHERE status='downloading' AND url LIKE '%playlist?list=%'"
-            ).fetchall()
-            
-            # Update playlist sync state for these jobs
-            for row in rows:
-                playlist = self.conn.execute("SELECT * FROM playlists WHERE url = ? AND sync_job_id = ?", (row["url"], row["id"])).fetchone()
-                if playlist:
-                    # Reset from "active" to "requested" since job is being reset to queued
-                    self.conn.execute(
-                        "UPDATE playlists SET sync_status='requested', updated_at=? WHERE id=?",
-                        (now, playlist["id"])
-                    )
-            
             self.conn.execute(
                 """
                 UPDATE jobs
@@ -105,8 +93,8 @@ class JobRepository:
             now = utc_now()
             self.conn.execute(
                 """
-                INSERT INTO jobs (id, url, title, status, category, quality, audio_only, audio_format, progress_stage, created_at, updated_at)
-                VALUES (?, ?, NULL, 'queued', ?, ?, ?, ?, NULL, ?, ?)
+                INSERT INTO jobs (id, url, status, category, quality, audio_only, audio_format, created_at, updated_at)
+                VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?)
                 """,
                 (job_id, url, category, quality, 1 if audio_only else 0, audio_format, now, now),
             )
@@ -115,16 +103,69 @@ class JobRepository:
     def upsert_playlist(self, url: str, name: str, category: str, quality: str, audio_only: bool = False, audio_format: str = "") -> dict[str, Any]:
         with self._lock:
             now = utc_now()
-            self.conn.execute(
-                """
-                INSERT INTO playlists (url, name, category, quality, audio_only, audio_format, sync_status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'idle', ?, ?)
-                ON CONFLICT(url) DO UPDATE SET name=excluded.name, category=excluded.category,
-                    quality=excluded.quality, audio_only=excluded.audio_only, audio_format=excluded.audio_format,
-                    updated_at=excluded.updated_at
-                """,
-                (url, name, category, quality, 1 if audio_only else 0, audio_format, now, now),
-            )
+            # Check if playlist already exists
+            existing = self.conn.execute(
+                "SELECT name FROM playlists WHERE url = ?", (url,)
+            ).fetchone()
+            
+            if existing:
+                existing_name = existing["name"]
+                # Determine if we should update the name
+                # Rule: Don't overwrite real title with playlist ID, but do update with newer real title
+                should_update_name = True
+                
+                # Check if existing name looks like a playlist ID (starts with PL and is alphanumeric)
+                def is_playlist_id(name: str) -> bool:
+                    return name.startswith("PL") and all(c.isalnum() or c == '_' for c in name)
+                
+                if is_playlist_id(existing_name) and not is_playlist_id(name):
+                    # Existing is playlist ID, new is real title → update
+                    should_update_name = True
+                elif not is_playlist_id(existing_name) and is_playlist_id(name):
+                    # Existing is real title, new is playlist ID → don't update
+                    should_update_name = False
+                elif not is_playlist_id(existing_name) and not is_playlist_id(name):
+                    # Both are real titles → update (allow newer title)
+                    should_update_name = True
+                else:
+                    # Both are playlist IDs → update (shouldn't happen but be safe)
+                    should_update_name = True
+                
+                if should_update_name:
+                    self.conn.execute(
+                        """
+                        INSERT INTO playlists (url, name, category, quality, audio_only, audio_format, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(url) DO UPDATE SET name=excluded.name, category=excluded.category,
+                            quality=excluded.quality, audio_only=excluded.audio_only, audio_format=excluded.audio_format,
+                            updated_at=excluded.updated_at
+                        """,
+                        (url, name, category, quality, 1 if audio_only else 0, audio_format, now, now),
+                    )
+                else:
+                    # Update everything except name
+                    self.conn.execute(
+                        """
+                        INSERT INTO playlists (url, name, category, quality, audio_only, audio_format, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(url) DO UPDATE SET category=excluded.category,
+                            quality=excluded.quality, audio_only=excluded.audio_only, audio_format=excluded.audio_format,
+                            updated_at=excluded.updated_at
+                        """,
+                        (url, name, category, quality, 1 if audio_only else 0, audio_format, now, now),
+                    )
+            else:
+                # New playlist, always insert with given name
+                self.conn.execute(
+                    """
+                    INSERT INTO playlists (url, name, category, quality, audio_only, audio_format, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(url) DO UPDATE SET name=excluded.name, category=excluded.category,
+                        quality=excluded.quality, audio_only=excluded.audio_only, audio_format=excluded.audio_format,
+                        updated_at=excluded.updated_at
+                    """,
+                    (url, name, category, quality, 1 if audio_only else 0, audio_format, now, now),
+                )
             self.conn.commit()
             row = self.conn.execute("SELECT * FROM playlists WHERE url = ?", (url,)).fetchone()
         return dict(row)
@@ -134,38 +175,20 @@ class JobRepository:
             rows = self.conn.execute("SELECT * FROM playlists ORDER BY updated_at DESC").fetchall()
         return [dict(row) for row in rows]
 
-    def get_playlist_by_url(self, url: str) -> Optional[dict[str, Any]]:
-        with self._lock:
-            row = self.conn.execute("SELECT * FROM playlists WHERE url = ?", (url,)).fetchone()
-        return dict(row) if row else None
-
     def get_playlist(self, playlist_id: int) -> Optional[dict[str, Any]]:
         with self._lock:
             row = self.conn.execute("SELECT * FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+        return dict(row) if row else None
+
+    def get_playlist_by_url(self, url: str) -> Optional[dict[str, Any]]:
+        with self._lock:
+            row = self.conn.execute("SELECT * FROM playlists WHERE url = ?", (url,)).fetchone()
         return dict(row) if row else None
 
     def mark_playlist_synced(self, playlist_id: int) -> None:
         with self._lock:
             now = utc_now()
             self.conn.execute("UPDATE playlists SET last_synced_at=?, updated_at=? WHERE id=?", (now, now, playlist_id))
-            self.conn.commit()
-
-    def update_playlist_sync_state(self, playlist_id: int, sync_status: str, sync_job_id: Optional[str] = None, last_successful_sync_at: Optional[str] = None) -> None:
-        """Update playlist sync state and related fields."""
-        with self._lock:
-            fields = {"sync_status": sync_status, "updated_at": utc_now()}
-            if sync_job_id is not None:
-                fields["sync_job_id"] = sync_job_id
-            if last_successful_sync_at is not None:
-                fields["last_successful_sync_at"] = last_successful_sync_at
-            
-            # For backward compatibility, also update last_synced_at when successful
-            if sync_status == "successful" and last_successful_sync_at:
-                fields["last_synced_at"] = last_successful_sync_at
-            
-            columns = ", ".join(f"{k} = ?" for k in fields)
-            values = list(fields.values()) + [playlist_id]
-            self.conn.execute(f"UPDATE playlists SET {columns} WHERE id = ?", values)
             self.conn.commit()
 
     def update_playlist_name(self, url: str, name: str) -> None:
@@ -180,6 +203,76 @@ class JobRepository:
                 "UPDATE playlists SET category=?, quality=?, audio_only=?, audio_format=?, updated_at=? WHERE id=?",
                 (category, quality, 1 if audio_only else 0, audio_format, utc_now(), playlist_id)
             )
+            self.conn.commit()
+
+    def update_playlist_sync_state(
+        self,
+        playlist_id: int,
+        sync_status: str,
+        sync_job_id: Optional[str] = None,
+        last_successful_sync_at: Optional[str] = None,
+    ) -> None:
+        """Update playlist sync state and related fields."""
+        with self._lock:
+            now = utc_now()
+            set_clauses = ["sync_status = ?", "updated_at = ?"]
+            params = [sync_status, now]
+            
+            if sync_job_id is not None:
+                set_clauses.append("sync_job_id = ?")
+                params.append(sync_job_id)
+            
+            if last_successful_sync_at is not None:
+                set_clauses.append("last_successful_sync_at = ?")
+                params.append(last_successful_sync_at)
+            
+            # Update last_synced_at for backward compatibility (only on successful sync)
+            if sync_status == "successful":
+                set_clauses.append("last_synced_at = ?")
+                if last_successful_sync_at is not None:
+                    params.append(last_successful_sync_at)
+                else:
+                    params.append(now)
+            
+            params.append(str(playlist_id))
+            query = f"UPDATE playlists SET {', '.join(set_clauses)} WHERE id = ?"
+            self.conn.execute(query, params)
+            self.conn.commit()
+
+    def update_playlist_sync_results(
+        self,
+        playlist_id: int,
+        discovered_count: int,
+        downloaded_count: int,
+        already_present_count: int,
+        failed_count: int,
+        last_sync_result: Optional[dict] = None,
+    ) -> None:
+        """Update playlist sync result counts."""
+        with self._lock:
+            now = utc_now()
+            set_clauses = [
+                "discovered_count = ?",
+                "downloaded_count = ?", 
+                "already_present_count = ?",
+                "failed_count = ?",
+                "updated_at = ?"
+            ]
+            params = [
+                discovered_count,
+                downloaded_count,
+                already_present_count,
+                failed_count,
+                now
+            ]
+            
+            if last_sync_result is not None:
+                set_clauses.append("last_sync_result = ?")
+                params.append(json.dumps(last_sync_result))
+            
+            params.append(str(playlist_id))
+            query = f"UPDATE playlists SET {', '.join(set_clauses)} WHERE id = ?"
+            self.conn.execute(query, params)
             self.conn.commit()
 
     def get_job(self, job_id: str) -> Optional[dict[str, Any]]:
@@ -203,107 +296,102 @@ class JobRepository:
         Returns True if the update applied. Used to avoid check-then-act races between
         cancellation and the worker loop transitioning a job to 'downloading'.
         """
-        if not fields:
-            return False
         fields["updated_at"] = utc_now()
         columns = ", ".join(f"{k} = ?" for k in fields)
-        placeholders = ", ".join("?" for _ in allowed_statuses)
-        values = list(fields.values()) + [job_id] + list(allowed_statuses)
+        values = list(fields.values()) + [job_id]
+        where = f"status IN ({', '.join('?' for _ in allowed_statuses)})"
+        values = values + list(allowed_statuses)
         with self._lock:
-            cur = self.conn.execute(
-                f"UPDATE jobs SET {columns} WHERE id = ? AND status IN ({placeholders})",
-                values,
-            )
+            self.conn.execute(f"UPDATE jobs SET {columns} WHERE id = ? AND {where}", values)
             self.conn.commit()
-        return cur.rowcount > 0
+            return self.conn.total_changes > 0
 
-    def list_jobs(self, *, limit: int, offset: int, status: str = "", category: str = "", search: str = "") -> tuple[list[dict[str, Any]], int]:
-        safe_limit = max(1, min(limit, 500))
-        safe_offset = max(0, offset)
-        where_parts = []
-        params: list[Any] = []
-        
-        if status:
-            where_parts.append("status = ?")
-            params.append(status)
-        if category:
-            where_parts.append("category = ?")
-            params.append(category)
-        if search:
-            where_parts.append("(title LIKE ? OR url LIKE ? OR filename LIKE ? OR id LIKE ?)")
-            search_term = f"%{search}%"
-            params.extend([search_term, search_term, search_term, search_term])
-        
-        where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
-
+    def get_downloading_jobs(self) -> list[dict[str, Any]]:
         with self._lock:
-            total = self.conn.execute(f"SELECT COUNT(*) AS c FROM jobs {where}", params).fetchone()["c"]
+            rows = self.conn.execute("SELECT * FROM jobs WHERE status='downloading'").fetchall()
+        return [dict(row) for row in rows]
+
+    def list_jobs(self, limit: int = 200) -> list[dict[str, Any]]:
+        with self._lock:
             rows = self.conn.execute(
-                f"""
-                SELECT * FROM jobs
-                {where}
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                params + [safe_limit, safe_offset],
+                "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
-        return [dict(row) for row in rows], int(total)
+        return [dict(row) for row in rows]
 
-    def list_pending_ids(self) -> list[str]:
+    def list_terminal_jobs(self) -> list[dict[str, Any]]:
         with self._lock:
-            rows = self.conn.execute("SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at ASC").fetchall()
-        return [row["id"] for row in rows]
-
-    def count_active(self) -> int:
-        with self._lock:
-            row = self.conn.execute("SELECT COUNT(*) AS c FROM jobs WHERE status IN ('queued', 'downloading')").fetchone()
-        return int(row["c"])
-
-    def health_check(self) -> bool:
-        try:
-            with self._lock:
-                self.conn.execute("SELECT 1")
-            return True
-        except sqlite3.Error:
-            return False
-
-    def prune_terminal_jobs(self, retention_hours: int, max_history_jobs: int) -> int:
-        removed = 0
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=retention_hours)).isoformat()
-        with self._lock:
-            cur = self.conn.execute(
-                """
-                DELETE FROM jobs
-                WHERE status IN ('finished','error','cancelled')
-                  AND updated_at < ?
-                """,
-                (cutoff,),
-            )
-            removed += cur.rowcount
-
-            row = self.conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()
-            total = int(row["c"])
-            overflow = total - max_history_jobs
-            if overflow > 0:
-                cur = self.conn.execute(
-                    """
-                    DELETE FROM jobs
-                    WHERE id IN (
-                        SELECT id FROM jobs
-                        WHERE status IN ('finished','error','cancelled')
-                        ORDER BY updated_at ASC
-                        LIMIT ?
-                    )
-                    """,
-                    (overflow,),
-                )
-                removed += cur.rowcount
-            self.conn.commit()
-        return removed
+            rows = self.conn.execute(
+                "SELECT * FROM jobs WHERE status IN ('finished', 'error', 'cancelled') ORDER BY finished_at DESC"
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def clear_terminal_jobs(self) -> int:
         with self._lock:
-            cur = self.conn.execute("DELETE FROM jobs WHERE status IN ('finished','error','cancelled')")
-            removed = cur.rowcount
+            self.conn.execute(
+                "DELETE FROM jobs WHERE status IN ('finished', 'error', 'cancelled')"
+            )
             self.conn.commit()
-        return removed
+            return self.conn.total_changes
+
+    def get_queued_job_ids(self) -> list[str]:
+        with self._lock:
+            rows = self.conn.execute("SELECT id FROM jobs WHERE status='queued' ORDER BY created_at").fetchall()
+        return [row["id"] for row in rows]
+
+    def list_pending_ids(self) -> list[str]:
+        """Get IDs of queued jobs (alias for get_queued_job_ids for backward compatibility)."""
+        return self.get_queued_job_ids()
+
+    def count_active(self) -> int:
+        """Count active (queued + downloading) jobs."""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT COUNT(*) as count FROM jobs WHERE status IN ('queued', 'downloading')"
+            ).fetchone()
+        return row["count"] if row else 0
+
+    def prune_terminal_jobs(self, retention_hours: int, max_history_jobs: int) -> None:
+        """Prune old terminal jobs."""
+        with self._lock:
+            # First, limit total number of terminal jobs
+            if max_history_jobs > 0:
+                # Count terminal jobs
+                terminal_count = self.conn.execute(
+                    "SELECT COUNT(*) as count FROM jobs WHERE status IN ('finished', 'error', 'cancelled')"
+                ).fetchone()["count"]
+                
+                if terminal_count > max_history_jobs:
+                    # Delete oldest terminal jobs exceeding limit
+                    self.conn.execute(
+                        """
+                        DELETE FROM jobs 
+                        WHERE id IN (
+                            SELECT id FROM jobs 
+                            WHERE status IN ('finished', 'error', 'cancelled') 
+                            ORDER BY finished_at ASC 
+                            LIMIT ?
+                        )
+                        """,
+                        (terminal_count - max_history_jobs,)
+                    )
+            
+            # Then, delete jobs older than retention period
+            if retention_hours > 0:
+                cutoff = (datetime.now(timezone.utc) - timedelta(hours=retention_hours)).isoformat()
+                self.conn.execute(
+                    "DELETE FROM jobs WHERE status IN ('finished', 'error', 'cancelled') AND finished_at < ?",
+                    (cutoff,)
+                )
+            
+            self.conn.commit()
+
+    def get_jobs_summary(self) -> dict[str, int]:
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT status, COUNT(*) as count
+                FROM jobs
+                GROUP BY status
+                """
+            ).fetchall()
+        return {row["status"]: row["count"] for row in rows}
