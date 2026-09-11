@@ -6,6 +6,7 @@ import subprocess
 import threading
 import time
 import uuid
+import json
 from typing import Any
 
 from .config import AUDIO_ONLY_CATEGORY, Config, get_playlist_id, resolve_category_dir, setup_logging, utc_now, validate_audio_format, validate_quality
@@ -16,6 +17,9 @@ DESTINATION_RE = re.compile(r"\[download\]\s+Destination:\s+(.+)")
 PLAYLIST_TITLE_RE = re.compile(
     r"\[(?:youtube:tab|download)\]\s+(?:Downloading|Finished downloading) playlist:\s+(.+)",
     re.IGNORECASE,
+)
+PLAYLIST_SYNC_RESULT_RE = re.compile(
+    r"\[download\]\s+(?:Downloading\s+)?(\d+)/(\d+)\s+videos?.*?(?:have already been downloaded)?.*?(?:downloaded)?"
 )
 PROGRESS_FLUSH_INTERVAL_SECONDS = 1.0
 
@@ -86,6 +90,11 @@ class DownloadManager:
             # Job reached a terminal state (e.g. finished) between our read and the update.
             return True
 
+        # Update playlist sync state to "failed" without updating last_successful_sync_at
+        playlist = self.repo.get_playlist_by_url(job["url"])
+        if playlist:
+            self.repo.update_playlist_sync_state(playlist["id"], "failed")
+
         with self.process_lock:
             proc = self.running_processes.get(job_id)
             if proc:
@@ -111,6 +120,12 @@ class DownloadManager:
             finished_at=None,
         )
         self.download_queue.put(job_id)
+        
+        # Update playlist sync state to "requested" if this is a playlist job
+        playlist = self.repo.get_playlist_by_url(job["url"])
+        if playlist:
+            self.repo.update_playlist_sync_state(playlist["id"], "requested", sync_job_id=job_id)
+        
         return True
 
     def worker_loop(self, worker_id: int) -> None:
@@ -198,6 +213,12 @@ class DownloadManager:
         else:
             log_context["quality"] = validate_quality(job["quality"])
         self.logger.info("Starting download", extra={"context": log_context})
+        
+        # When a playlist job starts downloading, update playlist to "active" state
+        if playlist_id:
+            playlist = self.repo.get_playlist_by_url(job["url"])
+            if playlist:
+                self.repo.update_playlist_sync_state(playlist["id"], "active", sync_job_id=job_id)
 
         timed_out = False
         output_tail = ""
@@ -225,6 +246,7 @@ class DownloadManager:
             if proc.stdout is not None:
                 pending_updates: dict[str, Any] = {}
                 last_flush = 0.0
+                sync_result = {"discovered": 0, "downloaded": 0, "already_present": 0, "failed": 0}
                 for line in proc.stdout:
                     output_tail = (output_tail + line)[-self.config.max_output_chars :]
 
@@ -248,17 +270,34 @@ class DownloadManager:
                     if playlist_title_match:
                         self.repo.update_playlist_name(job["url"], playlist_title_match.group(1).strip())
 
+                    # Parse playlist sync results
+                    sync_result_match = PLAYLIST_SYNC_RESULT_RE.search(line)
+                    if sync_result_match:
+                        downloaded_or_current = int(sync_result_match.group(1))
+                        total = int(sync_result_match.group(2))
+                        sync_result["discovered"] = total
+                        
+                        # Try to infer if this is "already downloaded" vs "downloaded"
+                        if "already been downloaded" in line:
+                            sync_result["already_present"] = downloaded_or_current
+                        elif "downloaded" in line:
+                            sync_result["downloaded"] = downloaded_or_current
+
                     now = time.monotonic()
                     # Persist on a cadence rather than on every line - yt-dlp can emit dozens
                     # of progress lines per second, and each write is a synchronous SQLite
                     # commit. Always flush on a destination change so the filename shows up
                     # promptly.
                     if destination_match or now - last_flush >= PROGRESS_FLUSH_INTERVAL_SECONDS:
+                        if sync_result["discovered"] > 0:
+                            pending_updates["sync_result"] = json.dumps(sync_result)
                         self.repo.update_job(job_id, output=output_tail, **pending_updates)
                         pending_updates = {}
                         last_flush = now
 
                 if pending_updates or output_tail:
+                    if sync_result["discovered"] > 0:
+                        pending_updates["sync_result"] = json.dumps(sync_result)
                     self.repo.update_job(job_id, output=output_tail, **pending_updates)
 
             proc.wait()
@@ -273,6 +312,14 @@ class DownloadManager:
 
         final_output = output_tail
         if proc.returncode == 0 and not timed_out:
+            # Update playlist sync state to "successful" with timestamp
+            playlist = self.repo.get_playlist_by_url(job["url"])
+            if playlist:
+                self.repo.update_playlist_sync_state(
+                    playlist["id"], 
+                    "successful", 
+                    last_successful_sync_at=utc_now()
+                )
             self.repo.update_job(job_id, status="finished", output=final_output, progress=100.0, finished_at=utc_now())
             return
 
@@ -284,4 +331,9 @@ class DownloadManager:
             self.download_queue.put(job_id)
             return
 
+        # Update playlist sync state to "failed" without updating last_successful_sync_at
+        playlist = self.repo.get_playlist_by_url(job["url"])
+        if playlist:
+            self.repo.update_playlist_sync_state(playlist["id"], "failed")
+        
         self.repo.update_job(job_id, status="error", output=final_output, error=error_tail, finished_at=utc_now())

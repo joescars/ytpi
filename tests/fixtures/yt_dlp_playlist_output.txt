@@ -1,0 +1,66 @@
+[youtube:tab] Extracting URL: https://www.youtube.com/playlist?list=PLsomeplaylist123
+[youtube:tab] Downloading playlist: Test Music Playlist
+[download] Downloading playlist item 1 of 10
+[youtube] Extracting URL: https://www.youtube.com/watch?v=abc123
+[youtube] abc123: Downloading webpage
+[youtube] abc123: Downloading MPD manifest
+[info] abc123: Downloading 1 format(s): 251
+[download] Destination: Test Music Playlist/Song One.webm
+[download]  17.4% of ~   3.71MiB at  251.00KiB/s ETA 00:12
+[download]  34.8% of ~   3.71MiB at  251.00KiB/s ETA 00:10
+[download]  52.2% of ~   3.71MiB at  251.00KiB/s ETA 00:08
+[download]  69.6% of ~   3.71MiB at  251.00KiB/s ETA 00:06
+[download]  87.0% of ~   3.71MiB at  251.00KiB/s ETA 00:04
+[download] 100% of    3.71MiB in 00:15
+[download] Downloading playlist item 2 of 10
+[youtube] Extracting URL: https://www.youtube.com/watch?v=def456
+[youtube] def456: Downloading webpage
+[youtube] def456: Downloading MPD manifest
+[info] def456: Downloading 1 format(s): 251
+[download] Destination: Test Music Playlist/Song Two.webm
+[download]  16.5% of ~   4.12MiB at  251.00KiB/s ETA 00:15
+[download]  33.0% of ~   4.12MiB at  251.00KiB/s ETA 00:13
+[download]  49.5% of ~   4.12MiB at  251.00KiB/s ETA 00:11
+[download]  66.0% of ~   4.12MiB at  251.00KiB/s ETA 00:09
+[download]  82.5% of ~   4.12MiB at  251.00KiB/s ETA 00:07
+[download]  99.0% of ~   4.12MiB at  251.00KiB/s ETA 00:05
+[download] 100% of    4.12MiB in 00:18
+[download] Downloading playlist item 3 of 10
+[youtube] Extracting URL: https://www.youtube.com/watch?v=ghi789
+[info] ghi789: Downloading 1 format(s): 251
+[download] Destination: Test Music Playlist/Song Three.webm
+[download] 100% of    2.89MiB in 00:11
+[download] Downloading playlist item 4 of 10
+[youtube] Extracting URL: https://www.youtube.com/watch?v=jkl012
+[youtube] jkl012: Downloading webpage
+[download] jkl012 has already been downloaded
+[download] Downloading playlist item 5 of 10
+[youtube] Extracting URL: https://www.youtube.com/watch?v=mno345
+[youtube] mno345: Downloading webpage
+[download] mno345 has already been downloaded
+[download] Downloading playlist item 6 of 10
+[youtube] Extracting URL: https://www.youtube.com/watch?v=pqr678
+[info] pqr678: Downloading 1 format(s): 251
+[download] Destination: Test Music Playlist/Song Six.webm
+[download] 100% of    5.43MiB in 00:21
+[download] Downloading playlist item 7 of 10
+[youtube] Extracting URL: https://www.youtube.com/watch?v=stu901
+[youtube] stu901: Downloading webpage
+[WARNING] Unable to download video: Video unavailable
+[download] Downloading playlist item 8 of 10
+[youtube] Extracting URL: https://www.youtube.com/watch?v=vwx234
+[youtube] vwx234: Downloading webpage
+[info] vwx234: Downloading 1 format(s): 251
+[download] Destination: Test Music Playlist/Song Eight.webm
+[download] 100% of    3.21MiB in 00:13
+[download] Downloading playlist item 9 of 10
+[youtube] Extracting URL: https://www.youtube.com/watch?v=yza567
+[youtube] yza567: Downloading webpage
+[info] yza567: Downloading 1 format(s): 251
+[download] Destination: Test Music Playlist/Song Nine.webm
+[download] 100% of    4.56MiB in 00:18
+[download] Downloading playlist item 10 of 10
+[youtube] Extracting URL: https://www.youtube.com/watch?v=bcd890
+[youtube] bcd890: Downloading webpage
+[download] bcd890 has already been downloaded
+[download] Finished downloading playlist: Test Music Playlist
