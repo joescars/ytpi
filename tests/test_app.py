@@ -586,3 +586,128 @@ def test_form_shows_multiple_invalid_urls_error(client):
     # Should show example of invalid URL
     assert "Multiple invalid URLs" in html
     assert "not-a-valid-url" in html
+
+def test_playlist_api_returns_all_fields(client):
+    """Test that playlist API returns all required fields for editable cards."""
+    url = "https://www.youtube.com/playlist?list=PLtest123"
+    # Create playlist with specific settings
+    resp = client.post(
+        "/download",
+        json={
+            "url": url,
+            "category": "test-category",
+            "quality": "720",
+            "audio_only": True,
+            "audio_format": "mp3"
+        },
+        environ_base=LOCAL
+    )
+    assert resp.status_code == 202
+    
+    # Sync it to set last_synced_at
+    playlist = client.get("/api/playlists", environ_base=LOCAL).get_json()["items"][0]
+    resp = client.post(f"/api/playlists/{playlist['id']}/sync", environ_base=LOCAL)
+    assert resp.status_code == 202
+    
+    # Get updated playlist
+    playlists = client.get("/api/playlists", environ_base=LOCAL)
+    assert playlists.status_code == 200
+    item = playlists.get_json()["items"][0]
+    
+    # Check all required fields are present
+    assert "id" in item
+    assert "url" in item
+    assert "name" in item
+    assert "category" in item
+    assert "quality" in item
+    assert "audio_only" in item
+    assert "audio_format" in item
+    assert "last_synced_at" in item
+    assert "created_at" in item
+    assert "updated_at" in item
+    
+    # Check specific values
+    # When audio_only=True, category is forced to "audio-only"
+    assert item["category"] == "audio-only"
+    assert item["quality"] == "720"
+    # audio_only is stored as integer in database
+    assert item["audio_only"] == 1
+    assert item["audio_format"] == "mp3"
+    assert item["last_synced_at"] is not None  # Should be set after sync
+
+
+def test_playlist_update_endpoint_exists(client):
+    """Test that playlist update endpoint exists and accepts data."""
+    url = "https://www.youtube.com/playlist?list=PLupdate123"
+    client.post("/download", json={"url": url}, environ_base=LOCAL)
+    playlist = client.get("/api/playlists", environ_base=LOCAL).get_json()["items"][0]
+    
+    # Try to update playlist settings
+    resp = client.put(
+        f"/api/playlists/{playlist['id']}",
+        json={
+            "category": "updated-category",
+            "quality": "1080",
+            "audio_only": False,
+            "audio_format": "wav"
+        },
+        environ_base=LOCAL
+    )
+    # Now the endpoint should exist
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    
+    # Verify the update worked
+    updated = client.get("/api/playlists", environ_base=LOCAL).get_json()["items"][0]
+    assert updated["category"] == "updated-category"
+    assert updated["quality"] == "1080"
+    assert updated["audio_only"] == 0  # False
+    assert updated["audio_format"] == "wav"
+
+
+def test_playlist_update_does_not_enqueue_download(client):
+    """Test that updating playlist settings doesn't enqueue a download."""
+    url = "https://www.youtube.com/playlist?list=PLnodownload123"
+    client.post("/download", json={"url": url}, environ_base=LOCAL)
+    playlist = client.get("/api/playlists", environ_base=LOCAL).get_json()["items"][0]
+    
+    # Count jobs before update
+    jobs_before = client.get("/api/status", environ_base=LOCAL).get_json()["items"]
+    jobs_before_count = len(jobs_before)
+    
+    # Update playlist settings
+    resp = client.put(f"/api/playlists/{playlist['id']}", json={"category": "new-category"}, environ_base=LOCAL)
+    assert resp.status_code == 200
+    
+    # Count jobs after (should be same)
+    jobs_after = client.get("/api/status", environ_base=LOCAL).get_json()["items"]
+    jobs_after_count = len(jobs_after)
+    
+    # No new jobs should be created by updating playlist settings
+    assert jobs_after_count == jobs_before_count
+
+
+def test_playlist_sync_uses_updated_settings(client):
+    """Test that syncing a playlist uses the updated settings, not original ones."""
+    url = "https://www.youtube.com/playlist?list=PLsyncsettings123"
+    # Create with initial settings
+    client.post(
+        "/download",
+        json={"url": url, "category": "initial", "quality": "480", "audio_only": False},
+        environ_base=LOCAL
+    )
+    playlist = client.get("/api/playlists", environ_base=LOCAL).get_json()["items"][0]
+    
+    # Update settings
+    resp = client.put(f"/api/playlists/{playlist['id']}", json={"category": "updated", "quality": "1080"}, environ_base=LOCAL)
+    assert resp.status_code == 200
+    
+    # Sync should use updated settings
+    resp = client.post(f"/api/playlists/{playlist['id']}/sync", environ_base=LOCAL)
+    assert resp.status_code == 202
+    
+    # Check that job was created with updated settings
+    job = client.get("/api/status", environ_base=LOCAL).get_json()["items"][0]
+    assert job["category"] == "updated"
+    assert job["quality"] == "1080"

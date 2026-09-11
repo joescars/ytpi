@@ -129,6 +129,15 @@ class JobRepository:
             self.conn.execute("UPDATE playlists SET name=?, updated_at=? WHERE url=?", (name, utc_now(), url))
             self.conn.commit()
 
+    def update_playlist_settings(self, playlist_id: int, category: str, quality: str, audio_only: bool, audio_format: str) -> None:
+        """Update playlist settings without changing the name."""
+        with self._lock:
+            self.conn.execute(
+                "UPDATE playlists SET category=?, quality=?, audio_only=?, audio_format=?, updated_at=? WHERE id=?",
+                (category, quality, 1 if audio_only else 0, audio_format, utc_now(), playlist_id)
+            )
+            self.conn.commit()
+
     def get_job(self, job_id: str) -> Optional[dict[str, Any]]:
         with self._lock:
             row = self.conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()

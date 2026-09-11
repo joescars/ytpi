@@ -218,6 +218,41 @@ def create_app() -> Flask:
     def api_playlists():
         return jsonify({"items": repo.list_playlists()})
 
+    @app.route("/api/playlists/<int:playlist_id>", methods=["PUT"])
+    def update_playlist(playlist_id: int):
+        playlist = repo.get_playlist(playlist_id)
+        if not playlist:
+            return jsonify({"error": "Playlist not found"}), 404
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Missing JSON data"}), 400
+        
+        # Validate inputs
+        try:
+            category = normalize_category_input(data.get("category", playlist["category"]))
+        except ValueError:
+            return jsonify({"error": "Invalid category name"}), 400
+        
+        quality = validate_quality(data.get("quality", playlist["quality"]))
+        audio_format = validate_audio_format(data.get("audio_format", playlist["audio_format"]))
+        
+        # Handle audio_only
+        audio_only = data.get("audio_only")
+        if audio_only is not None:
+            audio_only = str(audio_only).lower() in {"true", "1", "yes", "on"}
+        else:
+            audio_only = bool(playlist["audio_only"])
+        
+        # When audio_only=True, category is forced to "audio-only"
+        if audio_only:
+            category = AUDIO_ONLY_CATEGORY
+        
+        # Update playlist settings
+        repo.update_playlist_settings(playlist_id, category, quality, audio_only, audio_format)
+        
+        return jsonify({"success": True, "message": "Playlist updated"}), 200
+
     @app.route("/api/playlists/<int:playlist_id>/sync", methods=["POST"])
     def sync_playlist(playlist_id: int):
         playlist = repo.get_playlist(playlist_id)

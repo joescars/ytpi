@@ -355,6 +355,76 @@ input:focus, select:focus, textarea:focus {
   padding: 1.25rem;
 }
 
+.notification-region {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  max-width: 400px;
+  z-index: 1000;
+}
+
+.notification {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.75rem;
+  box-shadow: var(--shadow);
+  border-left: 4px solid var(--primary);
+  animation: notification-enter 0.3s ease both;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.notification.success {
+  border-left-color: var(--ok);
+}
+
+.notification.error {
+  border-left-color: var(--danger);
+}
+
+.notification.warning {
+  border-left-color: var(--warning);
+}
+
+.notification .content {
+  flex: 1;
+}
+
+.notification .dismiss {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  margin: -0.5rem -0.5rem -0.5rem 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notification .dismiss:hover {
+  color: var(--ink);
+}
+
+@keyframes notification-enter {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes notification-exit {
+  to { opacity: 0; transform: translateX(20px); }
+}
+
+.notification.exiting {
+  animation: notification-exit 0.3s ease both;
+}
+
 .enter {
   animation: enter .35s ease both;
 }
@@ -376,4 +446,200 @@ input:focus, select:focus, textarea:focus {
   .kpis { grid-template-columns: 1fr 1fr; }
   .jobs th, .jobs td { font-size: 0.82rem; }
   .output { min-height: 260px; }
+  .notification-region {
+    top: 0.5rem;
+    right: 0.5rem;
+    left: 0.5rem;
+    max-width: none;
+  }
+  
+  /* Make table responsive on mobile */
+  .jobs {
+    min-width: 0; /* Remove fixed min-width */
+  }
+  
+  /* Hide less important columns on mobile */
+  .jobs th:nth-child(4), /* ETA */
+  .jobs td:nth-child(4),
+  .jobs th:nth-child(5), /* Speed */
+  .jobs td:nth-child(5),
+  .jobs th:nth-child(6), /* URL */
+  .jobs td:nth-child(6),
+  .jobs th:nth-child(7), /* Error */
+  .jobs td:nth-child(7) {
+    display: none;
+  }
+  
+  /* Make essential columns more compact */
+  .jobs th:nth-child(1), /* ID */
+  .jobs td:nth-child(1) {
+    width: 60px;
+    max-width: 60px;
+  }
+  
+  .jobs th:nth-child(2), /* Status */
+  .jobs td:nth-child(2) {
+    width: 80px;
+    max-width: 80px;
+  }
+  
+  .jobs th:nth-child(3), /* Progress */
+  .jobs td:nth-child(3) {
+    width: 100px;
+    max-width: 100px;
+  }
+  
+  .jobs th:nth-child(8), /* Action */
+  .jobs td:nth-child(8) {
+    width: 80px;
+    max-width: 80px;
+  }
+  
+  /* Make buttons more touch-friendly */
+  .btn {
+    min-height: 44px;
+    padding: 0.85rem 1.1rem;
+  }
+  
+  /* Adjust table wrapper for mobile */
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Playlist Cards */
+.playlist-card {
+  padding: 1.2rem;
+  margin-bottom: 1rem;
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(13, 32, 60, 0.08);
+  transition: box-shadow 0.2s ease;
+}
+
+.playlist-card:hover {
+  box-shadow: 0 6px 20px rgba(13, 32, 60, 0.12);
+}
+
+.playlist-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.8rem;
+}
+
+.playlist-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.playlist-name {
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--ink);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.playlist-name:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.btn-small {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.85rem;
+  border-radius: 6px;
+}
+
+.playlist-mode {
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.playlist-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+
+.playlist-detail {
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.detail-value {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.playlist-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.8rem;
+}
+
+.playlist-edit-form {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.edit-form .form-group {
+  margin-bottom: 1rem;
+}
+
+.edit-form label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-weight: 500;
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
+.edit-form input[type="text"],
+.edit-form select {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--surface);
+  transition: border-color 0.2s ease;
+}
+
+.edit-form input[type="text"]:focus,
+.edit-form select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(0, 119, 204, 0.1);
+}
+
+.edit-form input[type="checkbox"] {
+  margin-right: 0.5rem;
+  transform: scale(1.2);
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.8rem;
+  margin-top: 1.5rem;
 }
