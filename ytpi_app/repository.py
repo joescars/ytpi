@@ -48,7 +48,6 @@ class JobRepository:
                 );
                 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
                 CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
-                CREATE INDEX IF NOT EXISTS idx_jobs_title ON jobs(title);
                 CREATE TABLE IF NOT EXISTS playlists (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     url TEXT NOT NULL UNIQUE,
@@ -87,7 +86,8 @@ class JobRepository:
                     self.conn.execute(f"ALTER TABLE playlists ADD COLUMN {col} {definition}")
                 except sqlite3.OperationalError:
                     pass
-            # Create index on sync_status if column exists
+            # Create indexes only after all migrations have added their columns.
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_title ON jobs(title)")
             try:
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_playlists_sync_status ON playlists(sync_status)")
             except sqlite3.OperationalError:
