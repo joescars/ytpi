@@ -37,6 +37,24 @@ jobs:
           docker compose down --remove-orphans
           docker compose up -d --build
           docker compose ps
-          curl --fail --retry 10 --retry-delay 3 http://127.0.0.1:7434/healthz
+          for attempt in $(seq 1 30); do
+            health="$(docker inspect --format '{{.State.Health.Status}}' ytpi 2>/dev/null || true)"
+            echo "YTPI container health: ${health:-missing} (attempt ${attempt}/30)"
+            case "$health" in
+              healthy)
+                curl --fail --retry 5 --retry-all-errors --retry-delay 2 http://127.0.0.1:7434/healthz
+                exit 0
+                ;;
+              unhealthy|"")
+                if [ "$health" = "unhealthy" ]; then
+                  docker compose logs --no-color --tail=100 ytpi
+                  exit 1
+                fi
+                ;;
+            esac
+            sleep 5
+          done
+          docker compose logs --no-color --tail=100 ytpi
+          exit 1
 
 
