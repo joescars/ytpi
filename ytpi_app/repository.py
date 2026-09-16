@@ -69,7 +69,6 @@ class JobRepository:
                     failed_count INTEGER DEFAULT 0
                 );
                 CREATE INDEX IF NOT EXISTS idx_playlists_updated_at ON playlists(updated_at);
-                CREATE INDEX IF NOT EXISTS idx_playlists_sync_status ON playlists(sync_status);
                 """
             )
             for col, definition in [("audio_only", "INTEGER NOT NULL DEFAULT 0"), ("audio_format", "TEXT NOT NULL DEFAULT ''"),
@@ -88,6 +87,11 @@ class JobRepository:
                     self.conn.execute(f"ALTER TABLE playlists ADD COLUMN {col} {definition}")
                 except sqlite3.OperationalError:
                     pass
+            # Create index on sync_status if column exists
+            try:
+                self.conn.execute("CREATE INDEX IF NOT EXISTS idx_playlists_sync_status ON playlists(sync_status)")
+            except sqlite3.OperationalError:
+                pass
             self.conn.commit()
 
     def reset_stale_downloading_jobs(self) -> None:
