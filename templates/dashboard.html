@@ -29,26 +29,30 @@
   </div>
 
   <div class="grid" style="grid-template-columns: 1fr; gap: 1rem;">
-    <section class="surface">
-      <div class="stack" style="gap:0.35rem; margin-bottom: 0.8rem;">
+    <section class="surface dashboard-card">
+      <div class="stack" style="gap:0.35rem; margin-bottom: 1.25rem;">
         <h1>Download History</h1>
         <p class="text-muted">Downloads in progress and completed.</p>
       </div>
-      <table id="jobs-table" class="table">
-        <thead>
-          <tr>
-            <th>Title</th>
-            <th>Category</th>
-            <th>Quality</th>
-            <th>Status</th>
-            <th>Progress</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="jobs-body">
-          <tr><td colspan="6" style="text-align: center; padding: 2rem;">Loading jobs...</td></tr>
-        </tbody>
-      </table>
+      <div class="table-wrap">
+        <table id="jobs-table" class="jobs">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Status</th>
+              <th>Progress</th>
+              <th>ETA</th>
+              <th>Speed</th>
+              <th>Source</th>
+              <th>Error</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="jobs-body">
+            <tr><td colspan="8" class="empty">Loading jobs...</td></tr>
+          </tbody>
+        </table>
+      </div>
       <div id="job-details" class="surface" style="margin-top: 1rem; padding: 1rem; border-top: 1px solid var(--border);">
         <h3 style="margin-top: 0;">Job Details</h3>
         <div id="job-details-content">
@@ -62,8 +66,8 @@
       </div>
     </section>
 
-    <section class="surface" id="playlists-section">
-      <div class="stack" style="gap:0.35rem; margin-bottom: 0.8rem;">
+    <section class="surface dashboard-card" id="playlists-section">
+      <div class="stack" style="gap:0.35rem; margin-bottom: 1.25rem;">
         <h2>Saved Playlists</h2>
         <p class="text-muted">Sync and manage playlists you've downloaded.</p>
       </div>

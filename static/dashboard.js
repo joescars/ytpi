@@ -204,6 +204,19 @@
     return String(status || 'queued').toLowerCase();
   }
 
+  // Keep noisy yt-dlp diagnostics out of the history table. The complete
+  // output remains available in the selected job's technical-details panel.
+  function errorSummary(job) {
+    if (job.status === 'cancelled') return 'Cancelled';
+    const raw = String(job.error || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return 'Download failed';
+    const http = raw.match(/HTTP Error (\d{3})/i);
+    if (http) return `YouTube request failed (${http[1]})`;
+    if (/not found/i.test(raw)) return 'Source not found';
+    if (/private|sign in|age-restricted/i.test(raw)) return 'Video access restricted';
+    return raw.length > 72 ? `${raw.slice(0, 69).trimEnd()}…` : raw;
+  }
+
   function buildActionButton(job) {
     if (job.status === 'queued' || job.status === 'downloading') {
       return button('Cancel', 'btn btn-muted', 'cancel', job.id);
@@ -304,11 +317,13 @@
       urlLink.title = job.url;
       urlTd.appendChild(urlLink);
 
-      // Error column (empty unless error status)
+      // Error column: show a concise outcome; full diagnostics stay in the
+      // selected job's technical-details panel.
       const errorTd = document.createElement('td');
-      if (job.error) {
-        errorTd.textContent = job.error;
-        errorTd.title = job.error;
+      errorTd.className = 'error-cell';
+      if (job.error || job.status === 'error' || job.status === 'cancelled') {
+        errorTd.textContent = errorSummary(job);
+        errorTd.title = job.error || errorTd.textContent;
       }
 
       // Action column

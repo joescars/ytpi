@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Queue Download{% endblock %}
 {% block content %}
-  <section class="surface" style="padding: 1.2rem;">
-    <div class="stack" style="gap:0.35rem; margin-bottom: 0.8rem;">
+  <section class="surface home-card">
+    <div class="stack" style="gap:0.35rem; margin-bottom: 1.25rem;">
       <h1>Queue Download</h1>
       <p class="text-muted">Download videos from YouTube as MP4 or audio‑only.</p>
     </div>
 
-    <form method="post" action="/download" enctype="multipart/form-data">
+    <form id="download-form" class="download-form" method="post" action="/download" enctype="multipart/form-data">
       <div>
         <label for="url">URLs (one per line)</label>
         <textarea id="url" name="url" rows="6" placeholder="https://youtube.com/watch?v=...
