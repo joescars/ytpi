@@ -34,6 +34,9 @@ jobs:
           pip install -U yt-dlp-ejs
           pip install -r requirements.txt
           pytest -q
+          docker compose down --remove-orphans
           docker compose up -d --build
+          docker compose ps
+          curl --fail --retry 10 --retry-delay 3 http://127.0.0.1:7434/healthz
 
 
