@@ -88,6 +88,6 @@ def test_job_polling_preserves_selection(client):
     # Should include the selected job ID in page
     assert selected_job in html
     
-    # Should have some mechanism to preserve selection during polling
-    # Could be data attributes, hidden inputs, or JavaScript variables
-    assert "data-job-id" in html or "selectedJob" in html.lower() or f"job={selected_job}" in html
+    # The selected job is carried by the shared body data attribute and read
+    # by the external dashboard.js polling client.
+    assert f'data-default-job-id="{selected_job}"' in html

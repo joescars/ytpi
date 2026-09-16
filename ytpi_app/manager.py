@@ -90,6 +90,9 @@ class DownloadManager:
             proc = self.running_processes.get(job_id)
             if proc:
                 _kill_process_group(proc)
+        playlist = self.repo.get_playlist_by_sync_job(job_id)
+        if playlist:
+            self.repo.update_playlist_sync_state(playlist["id"], "failed")
         return True
 
     def retry_job(self, job_id: str) -> bool:
@@ -114,6 +117,9 @@ class DownloadManager:
             finished_at=None,
         )
         self.download_queue.put(job_id)
+        playlist = self.repo.get_playlist_by_sync_job(job_id)
+        if playlist:
+            self.repo.update_playlist_sync_state(playlist["id"], "requested", sync_job_id=job_id)
         return True
 
     def worker_loop(self, worker_id: int) -> None:
@@ -347,36 +353,42 @@ class DownloadManager:
                     result["last_sync_result"]["discovered"] = total
                 continue
                 
-            # Check for successful download
+            # Check for successful download. Some yt-dlp versions omit the
+            # item marker, so count destination lines independently.
             match = destination_re.search(line)
-            if match and current_item:
-                current_item["status"] = "downloaded"
-                current_item["filename"] = match.group(1)
+            if match:
                 result["downloaded_count"] += 1
                 result["last_sync_result"]["downloaded"] += 1
-                items.append(current_item.copy())
-                current_item = None
+                if current_item:
+                    current_item["status"] = "downloaded"
+                    current_item["filename"] = match.group(1)
+                    items.append(current_item.copy())
+                    current_item = None
                 continue
                 
-            # Check for already present
+            # Check for already present. Count this independently of item
+            # markers for yt-dlp output formats that omit them.
             match = already_present_re.search(line)
-            if match and current_item:
-                current_item["status"] = "already_present"
-                current_item["filename"] = match.group(1)
+            if match:
                 result["already_present_count"] += 1
                 result["last_sync_result"]["already_present"] += 1
-                items.append(current_item.copy())
-                current_item = None
+                if current_item:
+                    current_item["status"] = "already_present"
+                    current_item["filename"] = match.group(1)
+                    items.append(current_item.copy())
+                    current_item = None
                 continue
                 
-            # Check for errors
-            if error_re.search(line) and current_item:
-                current_item["status"] = "failed"
-                current_item["error"] = line
+            # Check for errors. Count standalone errors even when no item
+            # marker preceded them.
+            if error_re.search(line):
                 result["failed_count"] += 1
                 result["last_sync_result"]["failed"] += 1
-                items.append(current_item.copy())
-                current_item = None
+                if current_item:
+                    current_item["status"] = "failed"
+                    current_item["error"] = line
+                    items.append(current_item.copy())
+                    current_item = None
                 continue
                 
         # Handle any pending current_item

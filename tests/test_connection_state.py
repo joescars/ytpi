@@ -86,9 +86,10 @@ def test_polling_pauses_when_page_hidden(client):
     resp = client.get("/status", environ_base=LOCAL)
     assert resp.status_code == 200
     html = resp.data.decode('utf-8')
+    script = (ROOT / "static" / "dashboard.js").read_text()
     
-    # The dashboard.js should have visibilitychange listener
-    assert 'visibilitychange' in html or 'document.hidden' in html
+    # The dashboard.js is loaded as an external asset, so inspect the asset.
+    assert 'visibilitychange' in script or 'document.hidden' in script
 
 
 def test_connection_state_transitions_announced(client):
@@ -110,11 +111,10 @@ def test_bounded_retry_backoff_on_failures(client):
     # The dashboard.js should implement backoff logic for failed fetches
     resp = client.get("/status", environ_base=LOCAL)
     assert resp.status_code == 200
-    html = resp.data.decode('utf-8')
+    script = (ROOT / "static" / "dashboard.js").read_text()
     
-    # Should have some mechanism for tracking consecutive failures
-    # This could be a counter or timestamp in the JavaScript
-    assert 'fetchJobs' in html or 'fetchPlaylists' in html or 'setInterval' in html
+    # The dashboard.js is loaded as an external asset, so inspect the asset.
+    assert 'fetchJobs' in script or 'fetchPlaylists' in script or 'setInterval' in script
 
 
 def test_existing_data_remains_visible_when_stale(client):

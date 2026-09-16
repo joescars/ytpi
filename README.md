@@ -1,20 +1,23 @@
-# ytpi
+# YTPI
 
-A Flask-based local YouTube downloader service using `yt-dlp`, designed for Raspberry Pi and LAN-only access by default.
+YTPI is a Flask-based local YouTube downloader for Raspberry Pi and LAN environments. It uses `yt-dlp` for downloads, persists queue/history data in SQLite, and provides a server-rendered web UI for queueing downloads and monitoring jobs.
 
-## What Changed
+The default security model is LAN-only access through a CIDR allowlist. It is not intended to be exposed directly to the public internet without an additional authenticated reverse proxy and a carefully scoped network configuration.
 
-This version adds:
+## Features
 
-- Persistent job history/queue in SQLite (`jobs.db`)
-- Safer network allowlisting with CIDR support (`ipaddress`)
-- Category path sanitization and traversal protection
-- Worker timeout, retry, cancel, and retry endpoints
-- Live dashboard updates (status table + output panel)
-- Configurable runtime through environment variables
-- Health/readiness endpoints: `/healthz`, `/readyz`
-- Structured JSON logging
-- Production container entrypoint via `waitress`
+- Queue one or more YouTube video or playlist URLs.
+- Download video as MP4 or extract audio as MP3/WAV.
+- Choose quality, category, and custom destination folders.
+- Persistent jobs and playlists in SQLite.
+- Recover queued jobs after an application restart.
+- Worker timeout, retry, cancel, and queue-limit handling.
+- Live status dashboard with progress, output, job details, and playlist management.
+- Concise error summaries in the history table while retaining technical diagnostics in job details.
+- Material-style responsive UI with light/dark theme support and touch-friendly controls.
+- CIDR allowlisting, URL validation, category path sanitization, and optional private-address blocking.
+- JSON API, health/readiness probes, and an optional share-sheet endpoint.
+- Docker deployment using Waitress, health checks, resource limits, and persistent bind mounts.
 
 ## Quick Start
 
@@ -26,9 +29,20 @@ pip install -r requirements.txt
 python app.py
 ```
 
-App URL: `http://localhost:7434`
+Open <http://localhost:7434>.
+
+`python app.py` uses Flask's development server and is intended for local development. The Docker image runs the application with Waitress.
+
+## Web UI
+
+- `GET /` — queue a download.
+- `GET /status` — view download history, progress, output, job details, and saved playlists.
+- The queue form accepts one URL per line and supports video, playlist, and mixed submissions.
+- Failed jobs show a short human-readable error in the table. Select a job to inspect its technical details rather than expanding the full downloader log into the table row.
 
 ## API
+
+All requests, including API and probe endpoints, are subject to the configured CIDR allowlist.
 
 ### Queue downloads
 
@@ -38,16 +52,17 @@ curl -X POST http://localhost:7434/download \
   -d '{"url":"https://youtube.com/watch?v=VIDEO_ID","quality":"1080","category":"Music"}'
 ```
 
-`/download` also accepts standard form-encoded submission (`application/x-www-form-urlencoded`), which is what the web UI (`templates/index.html`) uses — the route branches on `request.is_json`. Form submissions redirect to `/status` on success instead of returning JSON.
+`/download` accepts JSON and standard form-encoded submissions. The web UI uses form encoding. JSON requests return `202` with a `job_id` for one URL or `job_ids` for multiple URLs. Successful form submissions redirect to `/status`, selecting the queued job when one job was created.
 
-Full set of accepted `/download` fields:
+Accepted fields:
 
-- `url` (string) or `urls` (array) — one or more video URLs. `url` also accepts a single newline/comma-separated string for multiple URLs.
-- `quality` — one of `max`, `2160`, `1440`, `1080`, `720`, `480` (default `max`)
-- `category` — destination subfolder under `YTPI_DOWNLOADS_DIR`; pass `__custom__` with `customCategory` set to create/use an arbitrary sanitized name
-- `customCategory` — required when `category` is `__custom__`
-- `audio_only` — `true`/`1`/`yes`/`on` to extract audio only (always filed under the `audio-only` category)
-- `audio_format` — `mp3` or `wav` (default `mp3`), only used when `audio_only` is set
+- `url` — one URL, or a newline/comma-separated string containing multiple URLs.
+- `urls` — an array of URLs; alternatively accepted instead of `url`.
+- `quality` — `max`, `2160`, `1440`, `1080`, `720`, or `480`; defaults to `max`.
+- `category` — destination subfolder under `YTPI_DOWNLOADS_DIR`.
+- `customCategory` — sanitized category name required when `category` is `__custom__`.
+- `audio_only` — `true`, `1`, `yes`, or `on` to extract audio; audio downloads use the `audio-only` category.
+- `audio_format` — `mp3` or `wav`; used only when `audio_only` is enabled and defaults to `mp3`.
 
 Example audio-only request:
 
@@ -57,29 +72,34 @@ curl -X POST http://localhost:7434/download \
   -d '{"url":"https://youtube.com/watch?v=VIDEO_ID","audio_only":true,"audio_format":"mp3"}'
 ```
 
-### Status
+### Status and job data
 
-- UI: `GET /status`
-- JSON list: `GET /api/status?limit=200&offset=0&status=`
-- Output: `GET /job_output/<job_id>`
+- `GET /api/status?limit=200&offset=0&status=&category=&search=` — paginated JSON job history.
+- `GET /job_output/<job_id>` — JSON details and output for one job.
+- `POST /jobs/<job_id>/cancel` — cancel a queued or active job.
+- `POST /jobs/<job_id>/retry` — retry a terminal failed job when retry policy allows it.
+- `POST /clear-finished` — clear terminal jobs.
 
-### Job control
+### Playlists
 
-- Cancel: `POST /jobs/<job_id>/cancel`
-- Retry: `POST /jobs/<job_id>/retry`
-- Clear terminal jobs: `POST /clear-finished`
+- `GET /api/playlists` — list saved playlists.
+- `PUT /api/playlists/<playlist_id>` — update playlist settings.
+- `POST /api/playlists/<playlist_id>/sync` — queue a playlist synchronization.
 
-### Probes
+### Health probes
 
-- Liveness: `GET /healthz`
-- Readiness: `GET /readyz`
+- `GET /healthz` — liveness check for the database and workers.
+- `GET /readyz` — readiness check for database health, worker health, writable downloads storage, and available queue capacity.
+
+Both probes return JSON and HTTP `200` when healthy/ready or `503` otherwise.
 
 ## Share Sheet Endpoint
 
-`GET /share` still exists for iOS shortcut compatibility, but is configurable:
+`GET /share` is retained for iOS shortcut compatibility. It is controlled by configuration and requires a share token when enabled:
 
-- `YTPI_ENABLE_SHARE_GET=0` disables it
-- `YTPI_SHARE_TOKEN=<token>` requires `?token=<token>`
+- Set `YTPI_ENABLE_SHARE_GET=0` to disable the endpoint.
+- Set `YTPI_SHARE_TOKEN` to require `?token=<token>`.
+- If the endpoint is enabled without a token, requests are refused with `403`; it does not silently accept unauthenticated cross-site GET requests.
 
 Example:
 
@@ -87,64 +107,121 @@ Example:
 curl "http://localhost:7434/share?url=https://youtube.com/watch?v=VIDEO_ID&token=YOUR_TOKEN"
 ```
 
+By default, successful share requests redirect to the selected job on `/status`. Add `redirect=0` to receive the shared-job success page instead.
+
 ## Configuration
 
-Copy `.env.example` and override as needed:
+Copy `.env.example` and override values as needed:
 
-- `YTPI_HOST` (default `0.0.0.0`)
-- `YTPI_PORT` (default `7434`)
-- `YTPI_DOWNLOADS_DIR` (default `./downloads`)
-- `YTPI_DB_PATH` (default `./jobs.db`)
-- `YTPI_ALLOWED_CIDRS` (default private/local CIDRs)
-- `YTPI_TRUST_PROXY` (`0|1`)
-- `YTPI_ENABLE_SHARE_GET` (`0|1`)
-- `YTPI_SHARE_TOKEN` (optional)
-- `YTPI_MAX_QUEUE_SIZE` (default `200`)
-- `YTPI_MAX_WORKERS` (default `1`)
-- `YTPI_JOB_TIMEOUT_SECONDS` (default `3600`)
-- `YTPI_MAX_RETRIES` (default `1`)
-- `YTPI_MAX_OUTPUT_CHARS` (default `8000`)
-- `YTPI_JOB_RETENTION_HOURS` (default `168`)
-- `YTPI_MAX_HISTORY_JOBS` (default `2000`)
-- `YTPI_FFMPEG_PATH` (optional)
-- `YTPI_YTDLP_BIN` (default `yt-dlp`)
-- `YTPI_ENABLE_REMOTE_COMPONENTS` (`0|1`, default `1`) — controls whether yt-dlp is invoked with `--remote-components ejs:github`. This is currently needed for YouTube's JS-challenge bypass but means every job depends on live GitHub access; disable if you'd rather fail closed than depend on that.
-- `YTPI_BLOCK_PRIVATE_URLS` (`0|1`, default `0`) — when enabled, rejects submitted URLs whose host is a literal private/loopback/link-local/reserved IP address (basic SSRF mitigation; does not perform DNS resolution, so a hostname that merely *resolves* to an internal address is not caught)
-- `YTPI_MAX_CONTENT_LENGTH` (default `65536`) — max request body size in bytes accepted by Flask
+| Variable | Default | Purpose |
+|---|---:|---|
+| `YTPI_HOST` | `0.0.0.0` | Listen address. |
+| `YTPI_PORT` | `7434` | Listen port. |
+| `YTPI_DOWNLOADS_DIR` | `./downloads` | Root directory for downloaded media. |
+| `YTPI_DB_PATH` | `./jobs.db` | SQLite database path. |
+| `YTPI_ALLOWED_CIDRS` | private/local CIDRs | Source networks allowed to make requests. |
+| `YTPI_TRUST_PROXY` | `0` | Read the forwarded client IP when set to `1`; use only behind a trusted proxy. |
+| `YTPI_ENABLE_SHARE_GET` | `1` | Enable the legacy GET share route. |
+| `YTPI_SHARE_TOKEN` | empty | Token required by `/share`; configure it when the endpoint is enabled. |
+| `YTPI_MAX_QUEUE_SIZE` | `200` | Maximum number of active queued/downloading jobs. |
+| `YTPI_MAX_WORKERS` | `1` | Number of download workers. `0` is useful for tests and disables downloads. |
+| `YTPI_JOB_TIMEOUT_SECONDS` | `3600` | Per-job timeout; minimum accepted value is 30 seconds. |
+| `YTPI_MAX_RETRIES` | `1` | Maximum retry count. |
+| `YTPI_MAX_OUTPUT_CHARS` | `8000` | Maximum persisted downloader output per job. |
+| `YTPI_JOB_RETENTION_HOURS` | `168` | Age-based job retention. |
+| `YTPI_MAX_HISTORY_JOBS` | `2000` | Maximum retained history entries. |
+| `YTPI_FFMPEG_PATH` | empty | Optional explicit `ffmpeg` path. |
+| `YTPI_YTDLP_BIN` | `yt-dlp` | Downloader executable. |
+| `YTPI_ENABLE_REMOTE_COMPONENTS` | `1` | Pass `--remote-components ejs:github` to yt-dlp. This requires live GitHub access and a supported JavaScript runtime. |
+| `YTPI_BLOCK_PRIVATE_URLS` | `0` | Reject literal private, loopback, link-local, or reserved IP URLs. This does not resolve hostnames. |
+| `YTPI_MAX_CONTENT_LENGTH` | `65536` | Maximum accepted Flask request body size in bytes. |
 
 ## Docker
+
+Build and start the service:
 
 ```bash
 docker compose up -d --build
 ```
 
-Default compose publishes `7434:7434`, persists downloads and SQLite data, and includes health checks. The downloads bind mount in `docker-compose.yml` is host-specific — override it with `YTPI_HOST_DOWNLOADS_DIR=/path/to/media docker compose up -d`, or edit the mount in `docker-compose.yml` directly for your own host path.
+Check the service:
 
-`docker-entrypoint.sh` runs the app under [`waitress`](https://github.com/Pylons/waitress), a production WSGI server; `python app.py` (used in Quick Start / Dev Container) uses Flask's built-in development server and is not intended for anything beyond local development. If you run bare-metal outside Docker, put `waitress-serve --listen=0.0.0.0:7434 app:app` (or another production WSGI server) in front instead.
+```bash
+docker compose ps
+curl http://localhost:7434/healthz
+curl http://localhost:7434/readyz
+```
+
+Stop and remove the test/service container without deleting bind-mounted data:
+
+```bash
+docker compose down
+```
+
+The default compose configuration:
+
+- Publishes host port `7434` to container port `7434`.
+- Stores SQLite data in the repository's `data/` directory.
+- Mounts downloads from `${YTPI_HOST_DOWNLOADS_DIR}`.
+- Falls back to `/mnt/usb0/samsung/media/YouTube` if `YTPI_HOST_DOWNLOADS_DIR` is not set.
+- Includes a health check against `/healthz`.
+- Runs with a 1 GB memory limit and two CPU limit.
+- Restarts the container unless explicitly stopped.
+
+Use a different media directory without editing the compose file:
+
+```bash
+YTPI_HOST_DOWNLOADS_DIR=/path/to/media docker compose up -d --build
+```
+
+The Docker entrypoint runs Waitress. `yt-dlp`, `ffmpeg`, and the Deno runtime used by remote yt-dlp components are included in the image.
 
 ## Security Notes
 
-- All requests are restricted by CIDR allowlist (`YTPI_ALLOWED_CIDRS`)
-- Category names are sanitized and constrained to the downloads root
-- Optional share token for `GET /share`
+- Every request is checked against `YTPI_ALLOWED_CIDRS`.
+- Set `YTPI_TRUST_PROXY=1` only when the application is behind a trusted reverse proxy that correctly sets the client IP header.
+- Category names are sanitized and constrained below `YTPI_DOWNLOADS_DIR`.
+- URL validation rejects unsupported URLs; enable `YTPI_BLOCK_PRIVATE_URLS=1` for additional literal-IP checks.
+- Configure `YTPI_SHARE_TOKEN` before using `/share`.
+- Do not expose the service directly to the public internet without adding authentication and a properly configured reverse proxy.
 
 ## Testing
+
+Install development dependencies in the virtual environment, then run:
+
+```bash
+.venv/bin/pytest -q
+```
+
+Or, after activating the environment:
 
 ```bash
 pytest -q
 ```
 
+The Flask tests use temporary download/database paths, set `YTPI_MAX_WORKERS=0`, and make requests from an allowlisted localhost address. When writing new Flask tests, use `environ_base={"REMOTE_ADDR": "127.0.0.1"}` or another configured address.
+
+## Project Structure
+
+- `app.py` — development entrypoint and WSGI application export.
+- `ytpi_app/config.py` — environment parsing, validation, URL/category helpers, and IP handling.
+- `ytpi_app/routes.py` — web, API, share, job-control, and probe routes.
+- `ytpi_app/repository.py` — SQLite persistence and migrations.
+- `ytpi_app/manager.py` — queue, workers, subprocess execution, cancellation, retries, and output capture.
+- `templates/` — server-rendered Jinja2 pages.
+- `static/` — CSS and JavaScript for the dashboard and download form; there is no frontend build step.
+- `tests/` — application, API, playlist, history, navigation, and worker behavior tests.
+- `docker-compose.yml` and `Dockerfile` — container deployment.
+
 ## Local Development Notes
 
-- The app enforces CIDR allowlisting on every request.
-- Default `YTPI_ALLOWED_CIDRS` already allows localhost/private ranges.
-- If you are testing through a proxy/tunnel, set:
+The access guard runs on every request. The default allowlist includes localhost and private IPv4 ranges. If you are testing through a trusted proxy or tunnel:
 
 ```bash
 export YTPI_TRUST_PROXY=1
 ```
 
-- If your local network path is unusual, adjust:
+If your local network is not covered by the default allowlist, set an explicit list:
 
 ```bash
 export YTPI_ALLOWED_CIDRS="127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
@@ -152,20 +229,19 @@ export YTPI_ALLOWED_CIDRS="127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.
 
 ## Dev Container
 
-Use the provided `.devcontainer` config in VS Code, then run:
+Use the provided `.devcontainer` configuration in VS Code, then run:
 
 ```bash
 python app.py
 ```
 
-And for tests:
+The dev container forwards port `7434`. Run tests with `.venv/bin/pytest -q` or `pytest -q` after activating the environment.
 
-```bash
-pytest -q
-```
+## GitHub Actions
 
-Port `7434` is auto-forwarded by the dev container config.
+Two manually dispatched self-hosted workflows are included:
 
-## Deploy Workflows
+- `ytpi-workflow` installs dependencies, runs tests, and restarts a bare-metal systemd service.
+- `ytpi-docker-workflow` synchronizes the repository, installs dependencies, runs tests, and rebuilds the Docker Compose service.
 
-GitHub actions are provided for self-hosted deployment and now include automated test execution before restart/build.
+Review the paths and service names in `.github/workflows/` before using them on another host; they contain deployment-specific self-hosted runner settings.

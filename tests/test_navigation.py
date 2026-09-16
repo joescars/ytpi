@@ -1,6 +1,11 @@
+import re
+from pathlib import Path
+
 import pytest
 from flask import url_for
 from test_app import client, LOCAL
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_all_pages_have_consistent_navigation(client):
@@ -36,7 +41,8 @@ def test_navigation_is_touch_friendly(client):
     
     # Check for touch-friendly navigation structure
     assert 'nav-link' in html  # Has navigation links
-    assert 'min-height:' in html or 'padding:' in html or 'min-width:' in html  # Has sizing styles
+    css = (ROOT / 'static' / 'ui.css').read_text()
+    assert 'min-height:' in css or 'padding:' in css or 'min-width:' in css  # Has sizing styles
     
     # Check navigation is compact (not taking too much space)
     # Should have a responsive design
@@ -44,14 +50,15 @@ def test_navigation_is_touch_friendly(client):
     
     # Check for touch-friendly button styles
     assert 'btn' in html  # Has button classes
+    assert 'min-height: 44px' in css
 
 
 def test_no_duplicate_dashboard_links(client):
-    """Test that there are no duplicate Dashboard links in navigation."""
+    """Test that there is one exact Dashboard link in primary navigation."""
     resp = client.get("/", environ_base={"REMOTE_ADDR": "127.0.0.1"})
     html = resp.data.decode('utf-8')
-    
-    # Count occurrences of Dashboard/Status links
-    dashboard_link_count = html.count('href="/status"')
-    # Should have exactly one Dashboard link in navigation
-    assert dashboard_link_count == 1
+
+    nav = re.search(r'<nav\b[^>]*>.*?</nav>', html, re.DOTALL)
+    assert nav is not None
+    exact_status_links = re.findall(r'href="/status"(?:\s|>)', nav.group(0))
+    assert len(exact_status_links) == 1

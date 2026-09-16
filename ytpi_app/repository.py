@@ -112,8 +112,8 @@ class JobRepository:
             now = utc_now()
             self.conn.execute(
                 """
-                INSERT INTO jobs (id, url, status, category, quality, audio_only, audio_format, created_at, updated_at)
-                VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?)
+                INSERT INTO jobs (id, url, status, category, quality, audio_only, audio_format, progress_stage, created_at, updated_at)
+                VALUES (?, ?, 'queued', ?, ?, ?, ?, 'Preparing', ?, ?)
                 """,
                 (job_id, url, category, quality, 1 if audio_only else 0, audio_format, now, now),
             )
@@ -122,6 +122,10 @@ class JobRepository:
     def upsert_playlist(self, url: str, name: str, category: str, quality: str, audio_only: bool = False, audio_format: str = "") -> dict[str, Any]:
         with self._lock:
             now = utc_now()
+            existing = self.conn.execute("SELECT name FROM playlists WHERE url = ?", (url,)).fetchone()
+            playlist_id = url.split("list=", 1)[1].split("&", 1)[0] if "list=" in url else ""
+            incoming_is_fallback = bool(playlist_id and name == playlist_id)
+            preserved_name = existing["name"] if existing and incoming_is_fallback and existing["name"] != playlist_id else name
             self.conn.execute(
                 """
                 INSERT INTO playlists (url, name, category, quality, audio_only, audio_format, created_at, updated_at)
@@ -130,7 +134,7 @@ class JobRepository:
                     quality=excluded.quality, audio_only=excluded.audio_only, audio_format=excluded.audio_format,
                     updated_at=excluded.updated_at
                 """,
-                (url, name, category, quality, 1 if audio_only else 0, audio_format, now, now),
+                (url, preserved_name, category, quality, 1 if audio_only else 0, audio_format, now, now),
             )
             self.conn.commit()
             row = self.conn.execute("SELECT * FROM playlists WHERE url = ?", (url,)).fetchone()
@@ -144,6 +148,11 @@ class JobRepository:
     def get_playlist(self, playlist_id: int) -> Optional[dict[str, Any]]:
         with self._lock:
             row = self.conn.execute("SELECT * FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+        return dict(row) if row else None
+
+    def get_playlist_by_sync_job(self, job_id: str) -> Optional[dict[str, Any]]:
+        with self._lock:
+            row = self.conn.execute("SELECT * FROM playlists WHERE sync_job_id = ?", (job_id,)).fetchone()
         return dict(row) if row else None
 
     def mark_playlist_synced(self, playlist_id: int) -> None:
@@ -172,10 +181,16 @@ class JobRepository:
                 updates.append("last_successful_sync_at = ?")
                 params.append(last_successful_sync_at)
                 
-            # Only update last_synced_at if sync is successful
-            if sync_status == "successful":
-                updates.append("last_synced_at = ?")
+            # Keep the legacy timestamp populated when a sync is requested,
+            # while preserving the previous successful timestamp until the
+            # asynchronous job completes.
+            if sync_status == "requested":
+                updates.append("last_synced_at = COALESCE(last_synced_at, ?)")
                 params.append(utc_now())
+            elif sync_status == "successful":
+                successful_at = last_successful_sync_at or utc_now()
+                updates.append("last_synced_at = ?")
+                params.append(successful_at)
                 
             params.append(playlist_id)
             query = f"UPDATE playlists SET {', '.join(updates)} WHERE id = ?"
