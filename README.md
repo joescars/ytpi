@@ -18,6 +18,13 @@ The default security model is LAN-only access through a CIDR allowlist. It is no
 - CIDR allowlisting, URL validation, category path sanitization, and optional private-address blocking.
 - JSON API, health/readiness probes, and an optional share-sheet endpoint.
 - Docker deployment using Waitress, health checks, resource limits, and persistent bind mounts.
+- Manually dispatched self-hosted deployment workflows for the systemd and Docker Compose installations.
+
+## Screenshots
+
+![YTPI dashboard](docs-dashboard.png)
+
+The dashboard provides job KPIs, connection status, download history, technical job details, and saved-playlist management. This capture shows the healthy empty state before any jobs have been queued.
 
 ## Quick Start
 
@@ -82,9 +89,13 @@ curl -X POST http://localhost:7434/download \
 
 ### Playlists
 
-- `GET /api/playlists` — list saved playlists.
+Playlists submitted through the queue are saved with their friendly title when yt-dlp reports one. The dashboard lets you edit the saved category, quality, audio-only mode, and audio format, then request a synchronization later.
+
+- `GET /api/playlists` — list saved playlists and sync/result metadata.
 - `PUT /api/playlists/<playlist_id>` — update playlist settings.
 - `POST /api/playlists/<playlist_id>/sync` — queue a playlist synchronization.
+
+Playlist sync state is tracked as the asynchronous job runs. The dashboard can show the requested, successful, and failed state plus discovered, downloaded, already-present, and failed item counts. Existing playlist titles are retained when a later yt-dlp response only provides the playlist ID.
 
 ### Health probes
 
@@ -241,7 +252,7 @@ The dev container forwards port `7434`. Run tests with `.venv/bin/pytest -q` or 
 
 Two manually dispatched self-hosted workflows are included:
 
-- `ytpi-workflow` installs dependencies, runs tests, and restarts a bare-metal systemd service.
-- `ytpi-docker-workflow` synchronizes the repository, installs dependencies, runs tests, and rebuilds the Docker Compose service.
+- `ytpi-workflow` copies the checkout to the configured service directory, installs dependencies, runs `pytest -q`, and restarts the systemd service.
+- `ytpi-docker-workflow` synchronizes the checkout while preserving deployment data, installs dependencies, runs `pytest -q`, recreates the Compose service, waits for the container health check, and probes `/healthz`.
 
-Review the paths and service names in `.github/workflows/` before using them on another host; they contain deployment-specific self-hosted runner settings.
+These workflows are deployment-specific: they use `/home/runneruser/services/ytpi` or `/home/runneruser/services/ytpi-docker`, require a self-hosted runner, and are triggered with `workflow_dispatch`. Review the paths, service names, and runner permissions in `.github/workflows/` before using them on another host.
