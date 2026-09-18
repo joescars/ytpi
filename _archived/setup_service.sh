@@ -8,7 +8,7 @@ set -e
 echo "Setting up ytpi service on Raspberry MiniPC..."
 
 # Create app directory
-YTPI_DIR="/home/runneruser/services/ytpi"
+YTPI_DIR="${YTPI_DIR:-/srv/ytpi}"
 # mkdir -p "$YTPI_DIR"
 # mkdir -p "$YTPI_DIR/downloads"
 

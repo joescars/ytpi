@@ -4,10 +4,11 @@ After=network.target
 
 [Service]
 Type=simple
-User=runneruser
-WorkingDirectory=/home/runneruser/services/ytpi
-Environment=PATH=/home/runneruser/services/ytpi/venv/bin
-ExecStart=/home/runneruser/services/ytpi/venv/bin/python app.py
+# Replace these placeholders for the target host before installing.
+User=ytpi
+WorkingDirectory=/srv/ytpi
+Environment=PATH=/srv/ytpi/venv/bin
+ExecStart=/srv/ytpi/venv/bin/python app.py
 Restart=always
 RestartSec=10
 
