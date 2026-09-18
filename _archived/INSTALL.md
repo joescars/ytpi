@@ -12,9 +12,9 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install python3-pip python3-venv -y
 
 # Create the application directory
-sudo mkdir -p /home/pi/ytpi
-sudo chown pi:pi /home/pi/ytpi
-cd /home/pi/ytpi
+sudo mkdir -p /srv/ytpi
+sudo chown "$USER":"$USER" /srv/ytpi
+cd /srv/ytpi
 ```
 
 ## Step 2: Set Up the Application
@@ -34,7 +34,7 @@ mkdir -p downloads
 
 ## Step 3: Copy Your Files
 
-Transfer your application files to `/home/pi/ytpi/`:
+Transfer your application files to `/srv/ytpi/`:
 - `app.py`
 - `templates/` directory (if you have dashboard templates)
 
@@ -53,10 +53,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/ytpi
-Environment=PATH=/home/pi/ytpi/venv/bin
-ExecStart=/home/pi/ytpi/venv/bin/python app.py
+User=ytpi
+WorkingDirectory=/srv/ytpi
+Environment=PATH=/srv/ytpi/venv/bin
+ExecStart=/srv/ytpi/venv/bin/python app.py
 Restart=always
 RestartSec=10
 

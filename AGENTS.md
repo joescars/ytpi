@@ -26,4 +26,4 @@
 
 - `tests/test_app.py` builds each app against temporary `YTPI_DOWNLOADS_DIR` and `YTPI_DB_PATH`, sets `YTPI_MAX_WORKERS=0`, and allowlists `127.0.0.1`.
 - Flask test requests must pass `environ_base={"REMOTE_ADDR": "127.0.0.1"}` (or another configured address), otherwise the access guard returns `403`.
-- Read `CLAUDE.md` for the fuller verified architecture notes and `README.md` for the complete API/environment reference. `.github/copilot-instructions.md` describes the pre-refactor app and is stale.
+- Read `README.md` for the complete API/environment reference and current deployment notes.

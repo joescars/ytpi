@@ -12,22 +12,22 @@ jobs:
 
       - name: Create Python virtual environment
         run: |
-          cd /home/runneruser/services/ytpi
+          cd "${YTPI_SERVICE_DIR:-/srv/ytpi}"
           /usr/bin/python3.11 -m venv venv
 
       - name: be Copy files to folder
         run: |
-          cp -r ${{github.workspace}}/* /home/runneruser/services/ytpi
+          cp -r ${{github.workspace}}/* "${YTPI_SERVICE_DIR:-/srv/ytpi}"
       
       - name: Install dependencies
         run: |
-          cd /home/runneruser/services/ytpi
+          cd "${YTPI_SERVICE_DIR:-/srv/ytpi}"
           source venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
       - name: Run tests
         run: |
-          cd /home/runneruser/services/ytpi
+          cd "${YTPI_SERVICE_DIR:-/srv/ytpi}"
           source venv/bin/activate
           pytest -q
       - name: Restart Service
