@@ -24,10 +24,14 @@ jobs:
             /*) ;;
             *) echo "YTPI_DOCKER_APP_DIR must be an absolute path." >&2; exit 1 ;;
           esac
-          if [ "$APP_DIR" = "/" ] || [ "$APP_DIR" = "$GITHUB_WORKSPACE" ]; then
-            echo "YTPI_DOCKER_APP_DIR must not target the filesystem root or checkout directory." >&2
-            exit 1
-          fi
+          APP_DIR="$(realpath -m -- "$APP_DIR")"
+          WORKSPACE="$(realpath -m -- "$GITHUB_WORKSPACE")"
+          case "$WORKSPACE/" in
+            "$APP_DIR/"*) echo "YTPI_DOCKER_APP_DIR cannot contain the runner checkout." >&2; exit 1 ;;
+          esac
+          case "$APP_DIR/" in
+            "$WORKSPACE/"*) echo "YTPI_DOCKER_APP_DIR cannot be inside the runner checkout." >&2; exit 1 ;;
+          esac
           mkdir -p "$APP_DIR"
           rsync -av --delete \
             --exclude='.devcontainer/' \

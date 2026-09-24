@@ -22,10 +22,14 @@ jobs:
             /*) ;;
             *) echo "YTPI_SERVICE_DIR must be an absolute path." >&2; exit 1 ;;
           esac
-          if [ "$YTPI_SERVICE_DIR" = "/" ] || [ "$YTPI_SERVICE_DIR" = "$GITHUB_WORKSPACE" ]; then
-            echo "YTPI_SERVICE_DIR must not target the filesystem root or checkout directory." >&2
-            exit 1
-          fi
+          YTPI_SERVICE_DIR="$(realpath -m -- "$YTPI_SERVICE_DIR")"
+          WORKSPACE="$(realpath -m -- "$GITHUB_WORKSPACE")"
+          case "$WORKSPACE/" in
+            "$YTPI_SERVICE_DIR/"*) echo "YTPI_SERVICE_DIR cannot contain the runner checkout." >&2; exit 1 ;;
+          esac
+          case "$YTPI_SERVICE_DIR/" in
+            "$WORKSPACE/"*) echo "YTPI_SERVICE_DIR cannot be inside the runner checkout." >&2; exit 1 ;;
+          esac
           cd "$YTPI_SERVICE_DIR"
           /usr/bin/python3.11 -m venv venv
 
