@@ -5,7 +5,7 @@ name: ytpi-docker-workflow
 on: workflow_dispatch
 
 env:
-  APP_DIR: /srv/ytpi-docker
+  APP_DIR: ${{ vars.YTPI_DOCKER_APP_DIR }}
   
 jobs:
   build:
@@ -16,6 +16,23 @@ jobs:
 
       - name: Copy files to folder
         run: |
+          if [ -z "$APP_DIR" ]; then
+            echo "Repository variable YTPI_DOCKER_APP_DIR must be set to the writable Docker deployment directory." >&2
+            exit 1
+          fi
+          case "$APP_DIR" in
+            /*) ;;
+            *) echo "YTPI_DOCKER_APP_DIR must be an absolute path." >&2; exit 1 ;;
+          esac
+          APP_DIR="$(realpath -m -- "$APP_DIR")"
+          WORKSPACE="$(realpath -m -- "$GITHUB_WORKSPACE")"
+          case "$WORKSPACE/" in
+            "$APP_DIR/"*) echo "YTPI_DOCKER_APP_DIR cannot contain the runner checkout." >&2; exit 1 ;;
+          esac
+          case "$APP_DIR/" in
+            "$WORKSPACE/"*) echo "YTPI_DOCKER_APP_DIR cannot be inside the runner checkout." >&2; exit 1 ;;
+          esac
+          mkdir -p "$APP_DIR"
           rsync -av --delete \
             --exclude='.devcontainer/' \
             --exclude='.github/' \
@@ -23,11 +40,11 @@ jobs:
             --exclude='.vscode/' \
             --exclude='.git/' \
             --exclude='data/' \
-            ${{github.workspace}}/ ${{env.APP_DIR}}/
+            "${{ github.workspace }}/" "$APP_DIR/"
 
       - name: Build and Run Docker Container
         run: |
-          cd ${{env.APP_DIR}}
+          cd "$APP_DIR"
           python3 -m venv .venv
           source .venv/bin/activate
           pip install --upgrade pip
