@@ -252,7 +252,7 @@ The dev container forwards port `7434`. Run tests with `.venv/bin/pytest -q` or 
 
 Two manually dispatched self-hosted workflows are included:
 
-- `ytpi-workflow` copies the checkout to the configured service directory (default `/srv/ytpi`), installs dependencies, runs `pytest -q`, and restarts the systemd service.
-- `ytpi-docker-workflow` synchronizes the checkout to its configured application directory (default `/srv/ytpi-docker`) while preserving deployment data, installs dependencies, runs `pytest -q`, recreates the Compose service, waits for the container health check, and probes `/healthz`.
+- `ytpi-workflow` reads `YTPI_SERVICE_DIR` from repository Actions variables, copies the checkout there, installs dependencies, runs `pytest -q`, and restarts the systemd service.
+- `ytpi-docker-workflow` reads `YTPI_DOCKER_APP_DIR` from repository Actions variables, synchronizes the checkout there while preserving deployment data, installs dependencies, runs `pytest -q`, recreates the Compose service, waits for the container health check, and probes `/healthz`.
 
-These workflows are deployment-specific, require a self-hosted runner, and are triggered with `workflow_dispatch`. Configure the service paths and runner permissions for the target host before using them.
+Set each variable to an absolute deployment directory writable by the self-hosted runner. The matching variable must be configured before dispatching its workflow; each workflow fails early with an actionable error if its variable is missing. Both workflows are deployment-specific, require a self-hosted runner, and are triggered with `workflow_dispatch`.

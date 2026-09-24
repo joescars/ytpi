@@ -6,28 +6,46 @@ on: workflow_dispatch
 jobs:
   build:
     runs-on: self-hosted
+    env:
+      YTPI_SERVICE_DIR: ${{ vars.YTPI_SERVICE_DIR }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
 
       - name: Create Python virtual environment
         run: |
-          cd "${YTPI_SERVICE_DIR:-/srv/ytpi}"
+          if [ -z "$YTPI_SERVICE_DIR" ]; then
+            echo "Repository variable YTPI_SERVICE_DIR must be set to the systemd deployment directory." >&2
+            exit 1
+          fi
+          case "$YTPI_SERVICE_DIR" in
+            /*) ;;
+            *) echo "YTPI_SERVICE_DIR must be an absolute path." >&2; exit 1 ;;
+          esac
+          if [ "$YTPI_SERVICE_DIR" = "/" ] || [ "$YTPI_SERVICE_DIR" = "$GITHUB_WORKSPACE" ]; then
+            echo "YTPI_SERVICE_DIR must not target the filesystem root or checkout directory." >&2
+            exit 1
+          fi
+          cd "$YTPI_SERVICE_DIR"
           /usr/bin/python3.11 -m venv venv
 
       - name: be Copy files to folder
         run: |
-          cp -r ${{github.workspace}}/* "${YTPI_SERVICE_DIR:-/srv/ytpi}"
+          if [ -z "$YTPI_SERVICE_DIR" ]; then
+            echo "Repository variable YTPI_SERVICE_DIR must be set to the systemd deployment directory." >&2
+            exit 1
+          fi
+          cp -r "${{ github.workspace }}"/* "$YTPI_SERVICE_DIR"
       
       - name: Install dependencies
         run: |
-          cd "${YTPI_SERVICE_DIR:-/srv/ytpi}"
+          cd "$YTPI_SERVICE_DIR"
           source venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
       - name: Run tests
         run: |
-          cd "${YTPI_SERVICE_DIR:-/srv/ytpi}"
+          cd "$YTPI_SERVICE_DIR"
           source venv/bin/activate
           pytest -q
       - name: Restart Service
