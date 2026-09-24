@@ -62,3 +62,11 @@ def test_no_duplicate_dashboard_links(client):
     assert nav is not None
     exact_status_links = re.findall(r'href="/status"(?:\s|>)', nav.group(0))
     assert len(exact_status_links) == 1
+
+
+def test_robots_txt_disallows_all_crawlers(client):
+    response = client.get("/robots.txt", environ_base={"REMOTE_ADDR": "127.0.0.1"})
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/plain"
+    assert response.get_data(as_text=True) == "User-agent: *\nDisallow: /\n"

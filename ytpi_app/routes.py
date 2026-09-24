@@ -2,7 +2,7 @@ import atexit
 import hmac
 import os
 
-from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
 
 from .config import (
     AUDIO_ONLY_CATEGORY,
@@ -97,6 +97,12 @@ def create_app() -> Flask:
             "db_ok": repo.health_check(),
         }
         return jsonify(payload), (200 if payload["status"] == "ok" else 503)
+
+    @app.route("/robots.txt", methods=["GET"])
+    def robots_txt():
+        """Ask compliant search crawlers not to index or crawl this private app."""
+        robots_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "robots.txt")
+        return send_file(robots_path, mimetype="text/plain")
 
     @app.route("/readyz", methods=["GET"])
     def readyz():
