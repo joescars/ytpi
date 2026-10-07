@@ -20,6 +20,10 @@ The default security model is LAN-only access through a CIDR allowlist. It is no
 - Docker deployment using Waitress, health checks, resource limits, and persistent bind mounts.
 - Manually dispatched self-hosted deployment workflows for the systemd and Docker Compose installations.
 
+## YTPI v2 preview
+
+The separate v2 rebuild is under [`ytpi-v2/`](ytpi-v2/README.md). It has its own Docker Compose project, SQLite data, media directory, and LAN preview port (`7435`) so v1 remains available on its existing port. See the v2 README for setup and safe v1 database-copy instructions. The v2 preview is not a production cutover.
+
 ## Screenshots
 
 ![YTPI dashboard](docs-dashboard.png)
