@@ -10,6 +10,7 @@ __pycache__/
 htmlcov/
 data/
 downloads/
+.deployment-backups/
 *.db
 *.db-shm
 *.db-wal

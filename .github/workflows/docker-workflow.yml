@@ -40,6 +40,7 @@ jobs:
             --exclude='.vscode/' \
             --exclude='.git/' \
             --exclude='.env' \
+            --exclude='.deployment-backups/' \
             --exclude='data/' \
             --exclude='downloads/' \
             "${{ github.workspace }}/" "$APP_DIR/"
@@ -58,11 +59,13 @@ jobs:
           # project. Compose down only removes containers in this project, so
           # remove that exact stale container before reusing its fixed name.
           docker rm -f ytpi 2>/dev/null || true
-          # Preserve a consistent SQLite copy before v2 applies additive migrations.
+          # Persist a consistent SQLite backup outside data/ because that directory
+          # may be owned by the app user and read-only to this deployment runner.
           if [ -f data/jobs.db ]; then
-            backup="data/backups/jobs-pre-v2-$(date -u +%Y%m%dT%H%M%SZ).sqlite3"
-            mkdir -p data/backups
-            python3 -c 'import os,sqlite3,sys; src=sqlite3.connect("data/jobs.db"); dst=sqlite3.connect(sys.argv[1]); src.backup(dst); dst.close(); src.close(); os.chmod(sys.argv[1],0o600); print("SQLite backup created:",sys.argv[1])' "$backup"
+            backup_dir="$APP_DIR/.deployment-backups"
+            mkdir -p "$backup_dir"
+            backup="$backup_dir/jobs-pre-v2-$(date -u +%Y%m%dT%H%M%SZ).sqlite3"
+            python3 -c 'import os,sqlite3,sys; src=sqlite3.connect("file:data/jobs.db?mode=ro",uri=True); dst=sqlite3.connect(sys.argv[1]); src.backup(dst); dst.close(); src.close(); os.chmod(sys.argv[1],0o600); print("SQLite backup created:",sys.argv[1])' "$backup"
           fi
           docker compose up -d --build
           docker compose ps
