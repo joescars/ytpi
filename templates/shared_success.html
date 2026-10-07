@@ -1,30 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ytpi | Queued</title>
-  <link rel="stylesheet" href="/static/ui.css">
-</head>
-<body>
-  <main class="shell stack enter">
-    <header class="topbar">
-      <a href="/" class="brand">ytpi<small>share sheet intake</small></a>
-      <a class="btn btn-muted" href="/status?job={{ job_id }}">Dashboard</a>
-    </header>
-
-    <section class="surface" style="padding: 1.1rem; max-width: 760px;">
-      <h1 class="page-title" style="margin-bottom:0.35rem;">Queued Successfully</h1>
-      <p class="subtle">Your share request has been added to the queue.</p>
-      <div class="kpi" style="margin-top: 0.9rem; max-width: 320px;">
-        <p>Job ID</p>
-        <h3 class="mono" style="font-size: 1.05rem; word-break: break-all;">{{ job_id }}</h3>
-      </div>
-      <div class="actions" style="margin-top: 1rem;">
-        <a class="btn btn-primary" href="/status?job={{ job_id }}">Track This Job</a>
-        <a class="btn btn-muted" href="/">Queue Another</a>
-      </div>
-    </section>
-  </main>
-</body>
-</html>
+<!doctype html>
+<html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Download queued · YTPI</title><link rel="stylesheet" href="/static/app.css"><link rel="stylesheet" href="/static/playlists.css"></head>
+<body><main class="main-content" style="width:min(620px,calc(100% - 32px));margin:12vh auto;padding:0"><section class="compose-card"><div class="section-title"><div class="section-icon blue-icon" aria-hidden="true">✓</div><div><h1>Added to your queue</h1><p>{{ job.title or 'Your download is ready to start.' }}</p></div></div><p class="job-meta">Your media will be saved to {{ job.category or 'Main library' }}.</p><a class="button button-filled" href="/#downloads">View downloads</a></section></main></body></html>

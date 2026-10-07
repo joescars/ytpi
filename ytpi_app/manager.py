@@ -1,403 +1,221 @@
+from __future__ import annotations
+
 import os
 import queue
 import re
 import signal
 import subprocess
 import threading
-import time
 import uuid
+from pathlib import Path
 from typing import Any
 
-from .config import AUDIO_ONLY_CATEGORY, Config, get_playlist_id, resolve_category_dir, setup_logging, utc_now, validate_audio_format, validate_quality
-from .repository import JobRepository
+from .config import Settings, safe_category
+from .repository import JobRepository, now_iso
 
-PROGRESS_RE = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%.*?(?:at\s+([^\s]+))?.*?(?:ETA\s+([0-9:]+))?", re.IGNORECASE)
-DESTINATION_RE = re.compile(r"\[download\]\s+Destination:\s+(.+)")
-PLAYLIST_TITLE_RE = re.compile(
-    r"\[(?:youtube:tab|download)\]\s+(?:Downloading|Finished downloading) playlist:\s+(.+)",
-    re.IGNORECASE,
-)
-PROGRESS_FLUSH_INTERVAL_SECONDS = 1.0
-
-
-def _kill_process_group(proc: "subprocess.Popen[str]") -> None:
-    """Kill proc and any children it spawned (e.g. ffmpeg) via its process group."""
-    if proc.poll() is not None:
-        return
-    try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
-        proc.kill()
+_PROGRESS = re.compile(r"(\d+(?:\.\d+)?)%.*?(?:at\s+([^\s]+))?.*?(?:ETA\s+([0-9:]+))?", re.I)
+_DESTINATION = re.compile(r"Destination:\s+(.+)$")
+_TITLE = re.compile(r"__YTPI_TITLE__(.+)$")
+_MERGED_FILE = re.compile(r"Merging formats into [\"'](.+)[\"']")
 
 
 class DownloadManager:
-    def __init__(self, config: Config, repo: JobRepository, logger: Any | None = None):
-        self.config = config
+    def __init__(self, settings: Settings, repo: JobRepository):
+        self.settings = settings
         self.repo = repo
-        self.logger = logger or setup_logging()
-        self.download_queue: queue.Queue[str] = queue.Queue()
-        self.workers: list[threading.Thread] = []
-        self.running_processes: dict[str, subprocess.Popen[str]] = {}
-        self.process_lock = threading.RLock()
-
-        self.repo.reset_stale_downloading_jobs()
-        for job_id in self.repo.list_pending_ids():
-            self.download_queue.put(job_id)
-
-        for worker_id in range(self.config.max_workers):
-            thread = threading.Thread(target=self.worker_loop, args=(worker_id,), daemon=True)
+        self._queue: queue.Queue[str] = queue.Queue()
+        self._lock = threading.RLock()
+        self._processes: dict[str, subprocess.Popen[str]] = {}
+        self._workers: list[threading.Thread] = []
+        for job_id in repo.recover_interrupted_jobs():
+            self._queue.put(job_id)
+        for index in range(settings.workers):
+            thread = threading.Thread(target=self._worker, name=f"ytpi-worker-{index + 1}", daemon=True)
             thread.start()
-            self.workers.append(thread)
+            self._workers.append(thread)
 
-    def is_alive(self) -> bool:
-        if not self.workers:
-            # No worker threads (YTPI_MAX_WORKERS=0, e.g. in tests). Only report unhealthy
-            # if there's actually work sitting in the queue with nothing to process it.
-            return self.download_queue.empty()
-        return all(thread.is_alive() for thread in self.workers)
+    def enqueue(self, url: str, category: str, quality: str, audio_only: bool = False, audio_format: str = "mp3", playlist_id: int | None = None) -> dict[str, Any]:
+        return self.enqueue_many([{"url": url, "category": category, "quality": quality,
+                                   "audio_only": audio_only, "audio_format": audio_format,
+                                   "playlist_id": playlist_id}])[0]
+
+    def enqueue_many(self, requests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        with self._lock:
+            self.repo.prune_terminal_jobs(self.settings.job_retention_hours, self.settings.max_history_jobs)
+            if self.repo.count_active() + len(requests) > self.settings.queue_limit:
+                raise ValueError("The download queue is full. Try again later.")
+            jobs = []
+            for item in requests:
+                job_id = str(uuid.uuid4())
+                job = self.repo.create_job(job_id=job_id, url=item["url"], category=item["category"],
+                                           quality=item["quality"], audio_only=item["audio_only"],
+                                           audio_format=item["audio_format"], playlist_id=item.get("playlist_id"))
+                jobs.append(job)
+            for job in jobs:
+                if job.get("playlist_id") is not None:
+                    self.repo.set_playlist_sync(job["playlist_id"], "requested", job["id"])
+                self._queue.put(job["id"])
+            return jobs
+
+    def cancel(self, job_id: str) -> bool:
+        job = self.repo.get_job(job_id)
+        if not job or job["status"] not in {"queued", "downloading"}:
+            return False
+        self.repo.update_job(job_id, status="cancelled", stage="Cancelled", error="Cancelled by user", finished_at=now_iso())
+        with self._lock:
+            process = self._processes.get(job_id)
+            if process and process.poll() is None:
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                except (ProcessLookupError, OSError):
+                    process.terminate()
+        playlist = self.repo.playlist_for_job(job_id)
+        if playlist:
+            self.repo.set_playlist_sync(playlist["id"], "failed")
+        return True
+
+    def retry(self, job_id: str) -> bool:
+        job = self.repo.get_job(job_id)
+        if not job or job["status"] not in {"error", "cancelled"}:
+            return False
+        self.repo.update_job(job_id, status="queued", stage="Queued", progress=0, error="", output="",
+                             finished_at=None, speed="", eta="")
+        self._queue.put(job_id)
+        playlist = self.repo.playlist_for_job(job_id)
+        if playlist:
+            self.repo.set_playlist_sync(playlist["id"], "requested", job_id)
+        return True
+
+    def healthy(self) -> bool:
+        return all(thread.is_alive() for thread in self._workers)
 
     def shutdown(self) -> None:
-        with self.process_lock:
-            procs = list(self.running_processes.values())
-        for proc in procs:
-            _kill_process_group(proc)
+        with self._lock:
+            processes = list(self._processes.values())
+        for process in processes:
+            if process.poll() is None:
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                except (ProcessLookupError, OSError):
+                    process.terminate()
 
-    def enqueue(self, url: str, category: str, quality: str, audio_only: bool = False, audio_format: str = "") -> str:
-        if self.repo.count_active() >= self.config.max_queue_size:
-            raise ValueError("Queue is full. Try again later.")
+    def _output_tail(self, lines: list[str]) -> str:
+        return "\n".join(lines)[-self.settings.max_output_chars:]
 
-        self.repo.prune_terminal_jobs(self.config.job_retention_hours, self.config.max_history_jobs)
-        job_id = str(uuid.uuid4())
-        self.repo.create_job(job_id, url, category, quality, audio_only=audio_only, audio_format=audio_format)
-        self.download_queue.put(job_id)
-        return job_id
-
-    def cancel_job(self, job_id: str) -> bool:
-        job = self.repo.get_job(job_id)
-        if not job:
-            return False
-        if job["status"] in {"finished", "error", "cancelled"}:
-            return True
-
-        cancelled = self.repo.update_job_if_status_in(
-            job_id, {"queued", "downloading"}, status="cancelled", error="Cancelled by user", finished_at=utc_now()
-        )
-        if not cancelled:
-            # Job reached a terminal state (e.g. finished) between our read and the update.
-            return True
-
-        with self.process_lock:
-            proc = self.running_processes.get(job_id)
-            if proc:
-                _kill_process_group(proc)
-        playlist = self.repo.get_playlist_by_sync_job(job_id)
-        if playlist:
-            self.repo.update_playlist_sync_state(playlist["id"], "failed")
-        return True
-
-    def retry_job(self, job_id: str) -> bool:
-        job = self.repo.get_job(job_id)
-        if not job:
-            return False
-        if job["status"] not in {"error", "cancelled"}:
-            return False
-
-        self.repo.update_job(
-            job_id,
-            status="queued",
-            error="",
-            output="",
-            progress=0.0,
-            progress_stage="Preparing",
-            playlist_item_position=None,
-            playlist_item_total=None,
-            eta=None,
-            speed=None,
-            filename=None,
-            finished_at=None,
-        )
-        self.download_queue.put(job_id)
-        playlist = self.repo.get_playlist_by_sync_job(job_id)
-        if playlist:
-            self.repo.update_playlist_sync_state(playlist["id"], "requested", sync_job_id=job_id)
-        return True
-
-    def worker_loop(self, worker_id: int) -> None:
+    def _worker(self) -> None:
         while True:
-            job_id = self.download_queue.get()
+            job_id = self._queue.get()
             try:
-                self._process_job(job_id, worker_id)
-            except Exception as exc:  # pragma: no cover
-                self.logger.error("Worker loop failure", extra={"context": {"job_id": job_id, "worker_id": worker_id, "error": str(exc)}})
-                self.repo.update_job(job_id, status="error", error=f"Unexpected worker error: {exc}", finished_at=utc_now())
+                job = self.repo.get_job(job_id)
+                if job and job["status"] == "queued":
+                    self._run(job)
+            except Exception as error:
+                current = self.repo.get_job(job_id)
+                if current and current["status"] in {"queued", "downloading"}:
+                    self.repo.update_job(job_id, status="error", stage="Failed", error=f"Unexpected worker error: {error}", finished_at=now_iso())
+                    playlist = self.repo.playlist_for_job(job_id)
+                    if playlist:
+                        self.repo.set_playlist_sync(playlist["id"], "failed", job_id)
             finally:
-                self.download_queue.task_done()
+                self._queue.task_done()
 
-    def _process_job(self, job_id: str, worker_id: int) -> None:
-        job = self.repo.get_job(job_id)
-        if not job:
+    def _run(self, job: dict[str, Any]) -> None:
+        job_id = job["id"]
+        category = safe_category(job["category"]) if job["category"] else ""
+        destination = (self.settings.downloads_dir / category).resolve()
+        destination.mkdir(parents=True, exist_ok=True)
+        if not destination.is_relative_to(self.settings.downloads_dir.resolve()):
+            self.repo.update_job(job_id, status="error", error="Invalid destination category", stage="Failed", finished_at=now_iso())
             return
-        if job["status"] not in {"queued", "downloading"}:
-            return
-
-        attempt_count = int(job["attempt_count"] or 0) + 1
-        started = self.repo.update_job_if_status_in(
-            job_id,
-            {"queued", "downloading"},
-            status="downloading",
-            output="",
-            error="",
-            attempt_count=attempt_count,
-            started_at=utc_now(),
-            progress=0.0,
-            eta=None,
-            speed=None,
-        )
-        if not started:
-            # Job was cancelled between the read above and this atomic transition.
-            return
-        job = self.repo.get_job(job_id)
-        if not job:
-            return
-
-        category_dir = resolve_category_dir(self.config.downloads_dir, job["category"])
-        category_dir.mkdir(parents=True, exist_ok=True)
-
-        ffmpeg_args = ["--ffmpeg-location", self.config.ffmpeg_path] if self.config.ffmpeg_path else []
-        output_template = "%(playlist)s/%(title)s.%(ext)s" if "playlist?list=" in job["url"] else "%(title)s.%(ext)s"
-
-        remote_component_args = ["--remote-components", "ejs:github"] if self.config.enable_remote_components else []
-
-        audio_only = bool(job.get("audio_only"))
-        if audio_only:
-            audio_fmt = validate_audio_format(job.get("audio_format") or "")
-            cmd = [
-                self.config.yt_dlp_binary,
-                *remote_component_args,
-                *ffmpeg_args,
-                "--extract-audio",
-                "--audio-format", audio_fmt,
-                "-P", str(category_dir),
-                "--embed-metadata",
-                "-o", output_template,
-                job["url"],
-            ]
+        remote = ["--remote-components", "ejs:github"] if self.settings.enable_remote_components else []
+        ffmpeg = ["--ffmpeg-location", self.settings.ffmpeg_path] if self.settings.ffmpeg_path else []
+        command = [self.settings.yt_dlp, "--newline", "--no-colors", *remote, *ffmpeg,
+                   "--print", "after_move:__YTPI_TITLE__%(title)s", "-P", str(destination)]
+        if job["audio_only"]:
+            command += ["--extract-audio", "--audio-format", job["audio_format"] or "mp3"]
         else:
-            quality = validate_quality(job["quality"])
-            format_str = "bestvideo+bestaudio/best" if quality == "max" else f"bestvideo[height<={quality}]+bestaudio/best"
-            subtitle_flags = ["--write-auto-subs", "--sub-langs", "en", "--convert-subs", "srt"]
-            cmd = [
-                self.config.yt_dlp_binary,
-                *remote_component_args,
-                *ffmpeg_args,
-                "-f", format_str,
-                "-P", str(category_dir),
-                "--embed-metadata",
-                *subtitle_flags,
-                "-o", output_template,
-                job["url"],
-            ]
-
-        log_context = {"job_id": job_id, "worker_id": worker_id, "attempt": attempt_count, "url": job["url"], "audio_only": audio_only}
-        playlist_id = get_playlist_id(job["url"])
-        if playlist_id:
-            self.repo.upsert_playlist(job["url"], playlist_id, job["category"], job["quality"], audio_only, job.get("audio_format") or "")
-        if audio_only:
-            log_context["audio_format"] = validate_audio_format(job.get("audio_format") or "")
-        else:
-            log_context["quality"] = validate_quality(job["quality"])
-        self.logger.info("Starting download", extra={"context": log_context})
-
-        timed_out = False
-        output_tail = ""
-
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True
-        )
-
-        def on_timeout() -> None:
-            nonlocal timed_out
-            timed_out = True
-            _kill_process_group(proc)
-
-        timeout_timer = threading.Timer(self.config.job_timeout_seconds, on_timeout)
-        timeout_timer.start()
-
-        with self.process_lock:
-            self.running_processes[job_id] = proc
-
-        current = self.repo.get_job(job_id)
-        if current and current["status"] == "cancelled":
-            _kill_process_group(proc)
-
+            selector = "bestvideo+bestaudio/best" if job["quality"] == "max" else f"bestvideo[height<={job['quality']}]+bestaudio/best"
+            command += ["-f", selector, "--write-auto-subs", "--sub-langs", "en", "--convert-subs", "srt"]
+        command += ["-o", "%(playlist)s/%(title)s.%(ext)s" if "list=" in job["url"] else "%(title)s.%(ext)s", job["url"]]
+        attempt_count = int(job.get("attempt_count") or 0) + 1
+        self.repo.update_job(job_id, status="downloading", stage="Preparing", error="", started_at=now_iso(), attempt_count=attempt_count)
+        playlist = self.repo.playlist_for_job(job_id)
+        if playlist:
+            self.repo.set_playlist_sync(playlist["id"], "syncing", job_id)
+        output: list[str] = []
+        process: subprocess.Popen[str] | None = None
         try:
-            if proc.stdout is not None:
-                pending_updates: dict[str, Any] = {}
-                last_flush = 0.0
-                for line in proc.stdout:
-                    output_tail = (output_tail + line)[-self.config.max_output_chars :]
-
-                    progress_match = PROGRESS_RE.search(line)
-                    if progress_match:
-                        progress_str, speed, eta = progress_match.groups()
-                        try:
-                            pending_updates["progress"] = float(progress_str)
-                        except ValueError:
-                            pass
-                        if speed:
-                            pending_updates["speed"] = speed
-                        if eta:
-                            pending_updates["eta"] = eta
-
-                    destination_match = DESTINATION_RE.search(line)
-                    if destination_match:
-                        pending_updates["filename"] = destination_match.group(1).strip()
-
-                    playlist_title_match = PLAYLIST_TITLE_RE.search(line)
-                    if playlist_title_match:
-                        self.repo.update_playlist_name(job["url"], playlist_title_match.group(1).strip())
-
-                    now = time.monotonic()
-                    # Persist on a cadence rather than on every line - yt-dlp can emit dozens
-                    # of progress lines per second, and each write is a synchronous SQLite
-                    # commit. Always flush on a destination change so the filename shows up
-                    # promptly.
-                    if destination_match or now - last_flush >= PROGRESS_FLUSH_INTERVAL_SECONDS:
-                        self.repo.update_job(job_id, output=output_tail, **pending_updates)
-                        pending_updates = {}
-                        last_flush = now
-
-                if pending_updates or output_tail:
-                    self.repo.update_job(job_id, output=output_tail, **pending_updates)
-
-            proc.wait()
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                       bufsize=1, start_new_session=True)
+            with self._lock:
+                self._processes[job_id] = process
+            for line in process.stdout or []:
+                clean = line.rstrip()
+                output.append(clean)
+                output = output[-250:]
+                fields: dict[str, Any] = {"output": self._output_tail(output)}
+                title = _TITLE.search(clean)
+                if title:
+                    fields["title"] = title.group(1).strip()
+                    if self.repo.playlist_for_job(job_id):
+                        self.repo.update_playlist_name(job["url"], title.group(1).strip())
+                match = _PROGRESS.search(clean)
+                if match and "[download]" in clean:
+                    try:
+                        fields["progress"] = float(match.group(1))
+                    except ValueError:
+                        pass
+                    if match.group(2):
+                        fields["speed"] = match.group(2)
+                    if match.group(3):
+                        fields["eta"] = match.group(3)
+                    fields["stage"] = "Downloading"
+                if "Destination:" in clean or "Merger" in clean:
+                    fields["stage"] = "Processing"
+                found = _DESTINATION.search(clean)
+                if found:
+                    fields["filename"] = found.group(1).strip()
+                merged = _MERGED_FILE.search(clean)
+                if merged:
+                    fields["filename"] = merged.group(1).strip()
+                self.repo.update_job(job_id, **fields)
+            try:
+                returncode = process.wait(timeout=self.settings.timeout_seconds)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    process.kill()
+                returncode = process.wait()
+                output.append("Download timed out.")
+            latest = self.repo.get_job(job_id)
+            if latest and latest["status"] == "cancelled":
+                return
+            if returncode == 0:
+                self.repo.update_job(job_id, status="finished", stage="Finished", progress=100,
+                                     output=self._output_tail(output), finished_at=now_iso())
+                playlist = self.repo.playlist_for_job(job_id)
+                if playlist:
+                    self.repo.set_playlist_sync(playlist["id"], "successful", job_id, success=True)
+            elif attempt_count <= self.settings.max_retries:
+                message = f"yt-dlp exited with code {returncode}. Retrying ({attempt_count}/{self.settings.max_retries})…"
+                self.repo.update_job(job_id, status="queued", stage="Retry scheduled", error=message,
+                                     output=self._output_tail(output), finished_at=None)
+                playlist = self.repo.playlist_for_job(job_id)
+                if playlist:
+                    self.repo.set_playlist_sync(playlist["id"], "requested", job_id)
+                self._queue.put(job_id)
+            else:
+                self.repo.update_job(job_id, status="error", stage="Failed", error="\n".join(output[-8:]) or f"yt-dlp exited with {returncode}",
+                                     output=self._output_tail(output), finished_at=now_iso())
+                playlist = self.repo.playlist_for_job(job_id)
+                if playlist:
+                    self.repo.set_playlist_sync(playlist["id"], "failed", job_id)
+        except OSError as error:
+            self.repo.update_job(job_id, status="error", stage="Failed", error=f"Unable to start yt-dlp: {error}", finished_at=now_iso())
+            playlist = self.repo.playlist_for_job(job_id)
+            if playlist:
+                self.repo.set_playlist_sync(playlist["id"], "failed", job_id)
         finally:
-            timeout_timer.cancel()
-            with self.process_lock:
-                self.running_processes.pop(job_id, None)
-
-        latest = self.repo.get_job(job_id)
-        if latest and latest["status"] == "cancelled":
-            return
-
-        final_output = output_tail
-        if proc.returncode == 0 and not timed_out:
-            self.repo.update_job(job_id, status="finished", output=final_output, progress=100.0, finished_at=utc_now())
-            return
-
-        reason = "Timed out" if timed_out else f"yt-dlp exited with code {proc.returncode}"
-        error_tail = final_output[-1000:] if final_output else reason
-
-        if attempt_count <= self.config.max_retries:
-            self.repo.update_job(job_id, status="queued", output=final_output, error=f"{reason}. Retrying ({attempt_count}/{self.config.max_retries})")
-            self.download_queue.put(job_id)
-            return
-
-        self.repo.update_job(job_id, status="error", output=final_output, error=error_tail, finished_at=utc_now())
-
-    @staticmethod
-    def _parse_playlist_sync_output(output: str) -> dict[str, Any]:
-        """Parse yt-dlp output for playlist sync statistics."""
-        import re
-        
-        lines = output.splitlines()
-        result = {
-            "discovered_count": 0,
-            "downloaded_count": 0, 
-            "already_present_count": 0,
-            "failed_count": 0,
-            "last_sync_result": {
-                "discovered": 0,
-                "downloaded": 0,
-                "already_present": 0,
-                "failed": 0,
-                "items": []
-            }
-        }
-        
-        # Regex patterns
-        item_count_re = re.compile(r"\[download\] Downloading (\d+) videos?")
-        item_of_re = re.compile(r"\[download\] Downloading item (\d+) of (\d+)")
-        destination_re = re.compile(r"\[download\]\s+Destination:\s+(.+)")
-        already_present_re = re.compile(r"\[download\]\s+(.+?) has already been downloaded")
-        error_re = re.compile(r"ERROR:|WARNING:", re.IGNORECASE)
-        
-        current_item = None
-        items = []
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-                
-            # Check for total item count
-            match = item_count_re.search(line)
-            if match:
-                result["discovered_count"] = int(match.group(1))
-                result["last_sync_result"]["discovered"] = int(match.group(1))
-                continue
-                
-            # Check for "Downloading item X of Y"
-            match = item_of_re.search(line)
-            if match:
-                current_item = {
-                    "item": int(match.group(1)),
-                    "status": "unknown",
-                    "filename": None,
-                    "error": None
-                }
-                # Update discovered count from this if we didn't get it from "Downloading X videos"
-                total = int(match.group(2))
-                if total > result["discovered_count"]:
-                    result["discovered_count"] = total
-                    result["last_sync_result"]["discovered"] = total
-                continue
-                
-            # Check for successful download. Some yt-dlp versions omit the
-            # item marker, so count destination lines independently.
-            match = destination_re.search(line)
-            if match:
-                result["downloaded_count"] += 1
-                result["last_sync_result"]["downloaded"] += 1
-                if current_item:
-                    current_item["status"] = "downloaded"
-                    current_item["filename"] = match.group(1)
-                    items.append(current_item.copy())
-                    current_item = None
-                continue
-                
-            # Check for already present. Count this independently of item
-            # markers for yt-dlp output formats that omit them.
-            match = already_present_re.search(line)
-            if match:
-                result["already_present_count"] += 1
-                result["last_sync_result"]["already_present"] += 1
-                if current_item:
-                    current_item["status"] = "already_present"
-                    current_item["filename"] = match.group(1)
-                    items.append(current_item.copy())
-                    current_item = None
-                continue
-                
-            # Check for errors. Count standalone errors even when no item
-            # marker preceded them.
-            if error_re.search(line):
-                result["failed_count"] += 1
-                result["last_sync_result"]["failed"] += 1
-                if current_item:
-                    current_item["status"] = "failed"
-                    current_item["error"] = line
-                    items.append(current_item.copy())
-                    current_item = None
-                continue
-                
-        # Handle any pending current_item
-        if current_item:
-            current_item["status"] = "unknown"
-            items.append(current_item)
-            
-        # Sort items by item number
-        items.sort(key=lambda x: x["item"])
-        result["last_sync_result"]["items"] = items
-        
-        return result
+            with self._lock:
+                self._processes.pop(job_id, None)

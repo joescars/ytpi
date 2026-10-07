@@ -39,7 +39,9 @@ jobs:
             --exclude='_archived/' \
             --exclude='.vscode/' \
             --exclude='.git/' \
+            --exclude='.env' \
             --exclude='data/' \
+            --exclude='downloads/' \
             "${{ github.workspace }}/" "$APP_DIR/"
 
       - name: Build and Run Docker Container
@@ -56,6 +58,12 @@ jobs:
           # project. Compose down only removes containers in this project, so
           # remove that exact stale container before reusing its fixed name.
           docker rm -f ytpi 2>/dev/null || true
+          # Preserve a consistent SQLite copy before v2 applies additive migrations.
+          if [ -f data/jobs.db ]; then
+            backup="data/backups/jobs-pre-v2-$(date -u +%Y%m%dT%H%M%SZ).sqlite3"
+            mkdir -p data/backups
+            python3 -c 'import os,sqlite3,sys; src=sqlite3.connect("data/jobs.db"); dst=sqlite3.connect(sys.argv[1]); src.backup(dst); dst.close(); src.close(); os.chmod(sys.argv[1],0o600); print("SQLite backup created:",sys.argv[1])' "$backup"
+          fi
           docker compose up -d --build
           docker compose ps
           for attempt in $(seq 1 30); do
