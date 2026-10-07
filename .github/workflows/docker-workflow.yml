@@ -52,6 +52,10 @@ jobs:
           pip install -r requirements.txt
           pytest -q
           docker compose down --remove-orphans
+          # The legacy stack used container_name: ytpi under a different Compose
+          # project. Compose down only removes containers in this project, so
+          # remove that exact stale container before reusing its fixed name.
+          docker rm -f ytpi 2>/dev/null || true
           docker compose up -d --build
           docker compose ps
           for attempt in $(seq 1 30); do
