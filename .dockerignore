@@ -8,6 +8,7 @@ __pycache__
 .coverage
 htmlcov
 data
+.deployment-backups
 data/backups
 downloads
 *.db*
