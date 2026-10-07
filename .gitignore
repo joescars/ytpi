@@ -1,31 +1,17 @@
-downloads/
-# Ignore all files in the downloads directory
+.env
+.env.*
+!.env.example
 .venv/
 venv/
-# Ignore virtual environment directory
-.DS_Store
-
-# Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-*.egg-info/
 .pytest_cache/
 .coverage
 htmlcov/
-
-# IDE
-.vscode/settings.json.local
-.idea/
-
-# Environment files
-.env
-.env.local
-
-jobs.db*
+data/
+downloads/
+*.db
+*.db-shm
+*.db-wal
+.vscode/
 .DS_Store

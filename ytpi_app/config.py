@@ -1,248 +1,106 @@
+from __future__ import annotations
+
 import ipaddress
-import json
-import logging
 import os
-import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
-from urllib.parse import parse_qs, urlparse
-
-DEFAULT_ALLOWED_CIDRS = "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128"
-ALLOWED_QUALITIES = {"max", "2160", "1440", "1080", "720", "480"}
-ALLOWED_AUDIO_FORMATS = {"mp3", "wav"}
-AUDIO_ONLY_CATEGORY = "audio-only"
+from urllib.parse import urlparse
 
 
-@dataclass
-class Config:
+DEFAULT_CIDRS = "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128"
+QUALITIES = {"max", "2160", "1440", "1080", "720", "480"}
+AUDIO_FORMATS = {"mp3", "wav"}
+
+
+@dataclass(frozen=True)
+class Settings:
     host: str
     port: int
-    downloads_dir: Path
     db_path: Path
-    allowed_cidrs: list[ipaddress._BaseNetwork]
+    downloads_dir: Path
+    allowed_cidrs: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]
     trust_proxy: bool
-    enable_share_get: bool
-    share_token: str
-    max_queue_size: int
-    max_workers: int
-    job_timeout_seconds: int
+    workers: int
+    queue_limit: int
+    timeout_seconds: int
     max_retries: int
     max_output_chars: int
     job_retention_hours: int
     max_history_jobs: int
+    yt_dlp: str
     ffmpeg_path: str
-    yt_dlp_binary: str
     enable_remote_components: bool
     block_private_urls: bool
-    max_content_length: int
 
 
-def parse_bool(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def parse_int(value: str | None, default: int, min_value: int) -> int:
+def _integer(name: str, default: int, minimum: int) -> int:
     try:
-        parsed = int(value)
-    except (TypeError, ValueError):
+        value = int(os.getenv(name, str(default)))
+    except ValueError:
         return default
-    return max(parsed, min_value)
+    return max(value, minimum)
 
 
-def parse_cidrs(value: str | None) -> list[ipaddress._BaseNetwork]:
-    cidrs: list[ipaddress._BaseNetwork] = []
-    for entry in (value or DEFAULT_ALLOWED_CIDRS).split(","):
-        item = entry.strip()
-        if not item:
-            continue
-        cidrs.append(ipaddress.ip_network(item, strict=False))
-    return cidrs
-
-
-class JsonLogFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-        if hasattr(record, "context") and isinstance(record.context, dict):
-            payload.update(record.context)
-        return json.dumps(payload, ensure_ascii=True)
-
-
-def setup_logging() -> logging.Logger:
-    logger = logging.getLogger("ytpi")
-    if logger.handlers:
-        return logger
-    logger.setLevel(logging.INFO)
-    handler = logging.StreamHandler()
-    handler.setFormatter(JsonLogFormatter())
-    logger.addHandler(handler)
-    return logger
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def load_config() -> Config:
-    downloads_dir = Path(os.getenv("YTPI_DOWNLOADS_DIR", "./downloads")).resolve()
-    db_path = Path(os.getenv("YTPI_DB_PATH", "./jobs.db")).resolve()
-    return Config(
+def load_settings() -> Settings:
+    cidrs = tuple(
+        ipaddress.ip_network(value.strip(), strict=False)
+        for value in os.getenv("YTPI_ALLOWED_CIDRS", DEFAULT_CIDRS).split(",")
+        if value.strip()
+    )
+    return Settings(
         host=os.getenv("YTPI_HOST", "0.0.0.0"),
-        port=parse_int(os.getenv("YTPI_PORT", "7434"), 7434, 1),
-        downloads_dir=downloads_dir,
-        db_path=db_path,
-        allowed_cidrs=parse_cidrs(os.getenv("YTPI_ALLOWED_CIDRS", DEFAULT_ALLOWED_CIDRS)),
-        trust_proxy=parse_bool(os.getenv("YTPI_TRUST_PROXY", "0")),
-        enable_share_get=parse_bool(os.getenv("YTPI_ENABLE_SHARE_GET", "1")),
-        share_token=os.getenv("YTPI_SHARE_TOKEN", "").strip(),
-        max_queue_size=parse_int(os.getenv("YTPI_MAX_QUEUE_SIZE", "200"), 200, 1),
-        max_workers=parse_int(os.getenv("YTPI_MAX_WORKERS", "1"), 1, 0),
-        job_timeout_seconds=parse_int(os.getenv("YTPI_JOB_TIMEOUT_SECONDS", "3600"), 3600, 30),
-        max_retries=parse_int(os.getenv("YTPI_MAX_RETRIES", "1"), 1, 0),
-        max_output_chars=parse_int(os.getenv("YTPI_MAX_OUTPUT_CHARS", "8000"), 8000, 1000),
-        job_retention_hours=parse_int(os.getenv("YTPI_JOB_RETENTION_HOURS", "168"), 168, 1),
-        max_history_jobs=parse_int(os.getenv("YTPI_MAX_HISTORY_JOBS", "2000"), 2000, 100),
+        port=_integer("YTPI_PORT", 7434, 1),
+        db_path=Path(os.getenv("YTPI_DB_PATH", "./data/jobs.db")).resolve(),
+        downloads_dir=Path(os.getenv("YTPI_DOWNLOADS_DIR", "./downloads")).resolve(),
+        allowed_cidrs=cidrs,
+        trust_proxy=os.getenv("YTPI_TRUST_PROXY", "0").lower() in {"1", "true", "yes", "on"},
+        workers=_integer("YTPI_MAX_WORKERS", 1, 0),
+        queue_limit=_integer("YTPI_MAX_QUEUE_SIZE", 200, 1),
+        timeout_seconds=_integer("YTPI_JOB_TIMEOUT_SECONDS", 3600, 30),
+        max_retries=_integer("YTPI_MAX_RETRIES", 1, 0),
+        max_output_chars=_integer("YTPI_MAX_OUTPUT_CHARS", 8000, 1000),
+        job_retention_hours=_integer("YTPI_JOB_RETENTION_HOURS", 168, 1),
+        max_history_jobs=_integer("YTPI_MAX_HISTORY_JOBS", 2000, 100),
+        yt_dlp=os.getenv("YTPI_YTDLP_BIN", "yt-dlp"),
         ffmpeg_path=os.getenv("YTPI_FFMPEG_PATH", ""),
-        yt_dlp_binary=os.getenv("YTPI_YTDLP_BIN", "yt-dlp"),
-        enable_remote_components=parse_bool(os.getenv("YTPI_ENABLE_REMOTE_COMPONENTS", "1")),
-        block_private_urls=parse_bool(os.getenv("YTPI_BLOCK_PRIVATE_URLS", "0")),
-        max_content_length=parse_int(os.getenv("YTPI_MAX_CONTENT_LENGTH", "65536"), 65536, 1024),
+        enable_remote_components=os.getenv("YTPI_ENABLE_REMOTE_COMPONENTS", "1").lower() not in {"0", "false", "no", "off"},
+        block_private_urls=os.getenv("YTPI_BLOCK_PRIVATE_URLS", "0").lower() in {"1", "true", "yes", "on"},
     )
 
 
-def validate_quality(quality: str) -> str:
-    if not quality or quality not in ALLOWED_QUALITIES:
-        return "max"
-    return quality
-
-
-def validate_audio_format(audio_format: str) -> str:
-    if not audio_format or audio_format not in ALLOWED_AUDIO_FORMATS:
-        return "mp3"
-    return audio_format
-
-
-def normalize_urls(urls_input: Any) -> list[str]:
-    if isinstance(urls_input, str):
-        parts = re.split(r"[\n,]+", urls_input)
-        urls = [part.strip() for part in parts if part and part.strip()]
-    elif isinstance(urls_input, list):
-        urls = [str(url).strip() for url in urls_input if str(url).strip()]
-    else:
-        return []
-    return urls
-
-
-def is_literal_private_host(url: str) -> bool:
-    """True if url's host is a literal IP in a private/loopback/link-local/reserved range.
-
-    This does not perform DNS resolution (a hostname that *resolves* to an internal
-    address is not caught) - it only blocks the common case of a caller pointing the
-    generic extractor directly at an internal IP literal.
-    """
-    host = urlparse(url).hostname
-    if not host:
-        return False
+def client_allowed(remote_addr: str | None, forwarded_for: str, settings: Settings) -> bool:
+    address = remote_addr or ""
+    if settings.trust_proxy and forwarded_for:
+        address = forwarded_for.split(",", 1)[0].strip()
     try:
-        ip = ipaddress.ip_address(host)
+        client_ip = ipaddress.ip_address(address)
     except ValueError:
         return False
-    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
+    return any(client_ip.version == network.version and client_ip in network for network in settings.allowed_cidrs)
 
 
-def validate_url(url: str, block_private_hosts: bool = False) -> bool:
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"}:
-        return False
-    if not parsed.netloc:
-        return False
-    if block_private_hosts and is_literal_private_host(url):
-        return False
-    return True
-
-
-def get_playlist_id(url: str) -> Optional[str]:
-    parsed = urlparse(url)
-    host = (parsed.hostname or "").lower()
-    if host not in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}:
-        return None
-    query = parse_qs(parsed.query)
-    if parsed.path.rstrip("/") not in {"/playlist", "/watch"}:
-        return None
-    if parsed.path.rstrip("/") == "/watch" and query.get("v", [""])[0]:
-        return None
-    playlist_id = query.get("list", [""])[0].strip()
-    return playlist_id or None
-
-
-def is_playlist_url(url: str) -> bool:
-    return get_playlist_id(url) is not None
-
-
-def sanitize_category(raw: str) -> str:
-    value = (raw or "").strip()
+def safe_category(raw: str) -> str:
+    value = " ".join((raw or "").strip().split())
+    if not value or value in {".", ".."} or "/" in value or "\\" in value or ".." in value:
+        raise ValueError("Choose a valid category name.")
+    value = "".join(character for character in value if character.isalnum() or character in " _.-")
+    value = value.strip(" .")[:80]
     if not value:
-        return ""
-    value = value.replace("/", "-").replace("\\", "-")
-    value = re.sub(r"\s+", " ", value)
-    value = re.sub(r"[^A-Za-z0-9 _.-]", "", value)
-    value = value.strip(" .")
-    return value[:80]
+        raise ValueError("Choose a valid category name.")
+    return value
 
 
-def normalize_category_input(raw: str) -> str:
-    source = (raw or "").strip()
-    if not source:
-        return ""
-    if ".." in source or "/" in source or "\\" in source:
-        raise ValueError("Invalid category name")
-    sanitized = sanitize_category(source)
-    if not sanitized:
-        raise ValueError("Invalid category name")
-    return sanitized
-
-
-def resolve_category_dir(download_root: Path, category: str) -> Path:
-    candidate = download_root / category if category else download_root
-    resolved = candidate.resolve()
-    root = download_root.resolve()
+def valid_media_url(value: str, block_private: bool = False) -> bool:
     try:
-        resolved.relative_to(root)
-    except ValueError as exc:
-        raise ValueError("Invalid category path") from exc
-    return resolved
-
-
-def parse_client_ip(req: Any, trust_proxy: bool) -> Optional[ipaddress._BaseAddress]:
-    candidate = req.remote_addr
-    if trust_proxy:
-        header = req.headers.get("X-Forwarded-For", "")
-        if header:
-            candidate = header.split(",")[0].strip()
-    if not candidate:
-        return None
-    try:
-        return ipaddress.ip_address(candidate)
+        parsed = urlparse(value.strip())
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return False
+        if block_private:
+            try:
+                ip = ipaddress.ip_address(parsed.hostname)
+            except ValueError:
+                return True
+            return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast)
+        return True
     except ValueError:
-        return None
-
-
-def get_existing_categories(downloads_dir: Path) -> list[str]:
-    if not downloads_dir.exists():
-        return []
-    categories = []
-    try:
-        for item in downloads_dir.iterdir():
-            if item.is_dir() and not item.name.startswith("."):
-                categories.append(item.name)
-    except OSError:
-        return []
-    return sorted(categories)
+        return False

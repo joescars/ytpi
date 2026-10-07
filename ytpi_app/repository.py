@@ -1,343 +1,246 @@
+from __future__ import annotations
+
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from .config import utc_now
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class JobRepository:
-    def __init__(self, db_path: Path):
+    """SQLite persistence for jobs and saved playlists, including additive v1 migration."""
+
+    def __init__(self, path: Path):
+        path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._db_path = db_path
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA synchronous=NORMAL")
-        self._init_schema()
+        self._connection = sqlite3.connect(path, check_same_thread=False)
+        self._connection.row_factory = sqlite3.Row
+        self._connection.execute("PRAGMA journal_mode=WAL")
+        self._connection.execute("PRAGMA foreign_keys=ON")
+        self._initialize()
 
-    def _init_schema(self) -> None:
+    def _initialize(self) -> None:
         with self._lock:
-            self.conn.executescript(
-                """
+            self._connection.executescript("""
                 CREATE TABLE IF NOT EXISTS jobs (
-                    id TEXT PRIMARY KEY,
-                    url TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    category TEXT NOT NULL DEFAULT '',
-                    quality TEXT NOT NULL DEFAULT 'max',
-                    audio_only INTEGER NOT NULL DEFAULT 0,
-                    audio_format TEXT NOT NULL DEFAULT '',
-                    output TEXT NOT NULL DEFAULT '',
-                    error TEXT,
-                    progress REAL,
-                    eta TEXT,
-                    speed TEXT,
-                    filename TEXT,
-                    attempt_count INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    started_at TEXT,
-                    finished_at TEXT,
-                    title TEXT DEFAULT '',
-                    progress_stage TEXT DEFAULT '',
-                    playlist_item_position INTEGER,
-                    playlist_item_total INTEGER
+                    id TEXT PRIMARY KEY, url TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', status TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT '', quality TEXT NOT NULL DEFAULT 'max', audio_only INTEGER NOT NULL DEFAULT 0,
+                    audio_format TEXT NOT NULL DEFAULT 'mp3', progress REAL NOT NULL DEFAULT 0,
+                    stage TEXT NOT NULL DEFAULT 'Queued', speed TEXT NOT NULL DEFAULT '', eta TEXT NOT NULL DEFAULT '',
+                    filename TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '', output TEXT NOT NULL DEFAULT '',
+                    attempt_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                    started_at TEXT, finished_at TEXT,
+                    playlist_id INTEGER
                 );
-                CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
-                CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
                 CREATE TABLE IF NOT EXISTS playlists (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    url TEXT NOT NULL UNIQUE,
-                    name TEXT NOT NULL,
-                    category TEXT NOT NULL DEFAULT '',
-                    quality TEXT NOT NULL DEFAULT 'max',
-                    audio_only INTEGER NOT NULL DEFAULT 0,
-                    audio_format TEXT NOT NULL DEFAULT '',
-                    last_synced_at TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    sync_status TEXT DEFAULT 'idle',
-                    sync_job_id TEXT,
-                    last_successful_sync_at TEXT,
-                    discovered_count INTEGER DEFAULT 0,
-                    downloaded_count INTEGER DEFAULT 0,
-                    already_present_count INTEGER DEFAULT 0,
-                    failed_count INTEGER DEFAULT 0
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT '', quality TEXT NOT NULL DEFAULT 'max', audio_only INTEGER NOT NULL DEFAULT 0,
+                    audio_format TEXT NOT NULL DEFAULT '', last_synced_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                    sync_status TEXT DEFAULT 'idle', sync_job_id TEXT, last_successful_sync_at TEXT,
+                    discovered_count INTEGER DEFAULT 0, downloaded_count INTEGER DEFAULT 0,
+                    already_present_count INTEGER DEFAULT 0, failed_count INTEGER DEFAULT 0
                 );
-                CREATE INDEX IF NOT EXISTS idx_playlists_updated_at ON playlists(updated_at);
-                """
-            )
-            for col, definition in [("audio_only", "INTEGER NOT NULL DEFAULT 0"), ("audio_format", "TEXT NOT NULL DEFAULT ''"),
-                                   ("title", "TEXT DEFAULT ''"), ("progress_stage", "TEXT DEFAULT ''"),
-                                   ("playlist_item_position", "INTEGER"), ("playlist_item_total", "INTEGER")]:
-                try:
-                    self.conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {definition}")
-                except sqlite3.OperationalError:
-                    pass
-            # Add playlist sync columns if they don't exist
-            for col, definition in [("sync_status", "TEXT DEFAULT 'idle'"), ("sync_job_id", "TEXT"),
-                                   ("last_successful_sync_at", "TEXT"), ("discovered_count", "INTEGER DEFAULT 0"),
-                                   ("downloaded_count", "INTEGER DEFAULT 0"), ("already_present_count", "INTEGER DEFAULT 0"),
-                                   ("failed_count", "INTEGER DEFAULT 0")]:
-                try:
-                    self.conn.execute(f"ALTER TABLE playlists ADD COLUMN {col} {definition}")
-                except sqlite3.OperationalError:
-                    pass
-            # Create indexes only after all migrations have added their columns.
-            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_title ON jobs(title)")
-            try:
-                self.conn.execute("CREATE INDEX IF NOT EXISTS idx_playlists_sync_status ON playlists(sync_status)")
-            except sqlite3.OperationalError:
-                pass
-            self.conn.commit()
+            """)
+            self._add_missing_columns("jobs", {
+                "title": "TEXT NOT NULL DEFAULT ''", "category": "TEXT NOT NULL DEFAULT ''",
+                "quality": "TEXT NOT NULL DEFAULT 'max'", "audio_only": "INTEGER NOT NULL DEFAULT 0",
+                "audio_format": "TEXT NOT NULL DEFAULT 'mp3'", "progress": "REAL NOT NULL DEFAULT 0",
+                "stage": "TEXT NOT NULL DEFAULT 'Queued'", "speed": "TEXT NOT NULL DEFAULT ''",
+                "eta": "TEXT NOT NULL DEFAULT ''", "filename": "TEXT NOT NULL DEFAULT ''",
+                "error": "TEXT NOT NULL DEFAULT ''", "output": "TEXT NOT NULL DEFAULT ''",
+                "attempt_count": "INTEGER NOT NULL DEFAULT 0", "created_at": "TEXT NOT NULL DEFAULT ''",
+                "updated_at": "TEXT NOT NULL DEFAULT ''",
+                "started_at": "TEXT", "finished_at": "TEXT", "playlist_id": "INTEGER",
+            })
+            self._add_missing_columns("playlists", {
+                "url": "TEXT NOT NULL DEFAULT ''", "name": "TEXT NOT NULL DEFAULT ''",
+                "category": "TEXT NOT NULL DEFAULT ''", "quality": "TEXT NOT NULL DEFAULT 'max'",
+                "audio_only": "INTEGER NOT NULL DEFAULT 0", "audio_format": "TEXT NOT NULL DEFAULT ''",
+                "last_synced_at": "TEXT", "created_at": "TEXT NOT NULL DEFAULT ''", "updated_at": "TEXT NOT NULL DEFAULT ''",
+                "sync_status": "TEXT DEFAULT 'idle'", "sync_job_id": "TEXT", "last_successful_sync_at": "TEXT",
+                "discovered_count": "INTEGER DEFAULT 0", "downloaded_count": "INTEGER DEFAULT 0",
+                "already_present_count": "INTEGER DEFAULT 0", "failed_count": "INTEGER DEFAULT 0",
+            })
+            columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(jobs)")}
+            if "progress_stage" in columns:
+                self._connection.execute("UPDATE jobs SET stage=progress_stage WHERE stage='Queued' AND progress_stage IS NOT NULL AND progress_stage!=''")
+            if "stage" in columns:
+                self._connection.execute("UPDATE jobs SET stage='Downloading' WHERE status='downloading' AND stage='Queued'")
+                self._connection.execute("UPDATE jobs SET stage='Finished' WHERE status='finished' AND stage='Queued'")
+                self._connection.execute("UPDATE jobs SET stage='Failed' WHERE status='error' AND stage='Queued'")
+                self._connection.execute("UPDATE jobs SET stage='Cancelled' WHERE status='cancelled' AND stage='Queued'")
+            self._connection.execute("CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at DESC)")
+            self._connection.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
+            self._connection.execute("CREATE INDEX IF NOT EXISTS idx_playlists_updated ON playlists(updated_at DESC)")
+            self._connection.commit()
 
-    def reset_stale_downloading_jobs(self) -> None:
-        with self._lock:
-            now = utc_now()
-            self.conn.execute(
-                """
-                UPDATE jobs
-                SET status='queued', updated_at=?, error=COALESCE(error,'')
-                WHERE status='downloading'
-                """,
-                (now,),
-            )
-            self.conn.commit()
+    def _add_missing_columns(self, table: str, columns: dict[str, str]) -> None:
+        existing = {row["name"] for row in self._connection.execute(f"PRAGMA table_info({table})")}
+        for name, definition in columns.items():
+            if name not in existing:
+                self._connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
 
-    def create_job(self, job_id: str, url: str, category: str, quality: str, audio_only: bool = False, audio_format: str = "") -> None:
+    def close(self) -> None:
         with self._lock:
-            now = utc_now()
-            self.conn.execute(
-                """
-                INSERT INTO jobs (id, url, status, category, quality, audio_only, audio_format, progress_stage, created_at, updated_at)
-                VALUES (?, ?, 'queued', ?, ?, ?, ?, 'Preparing', ?, ?)
-                """,
-                (job_id, url, category, quality, 1 if audio_only else 0, audio_format, now, now),
-            )
-            self.conn.commit()
+            self._connection.close()
 
-    def upsert_playlist(self, url: str, name: str, category: str, quality: str, audio_only: bool = False, audio_format: str = "") -> dict[str, Any]:
+    def create_job(self, *, job_id: str, url: str, category: str, quality: str, audio_only: bool, audio_format: str, playlist_id: int | None = None) -> dict[str, Any]:
+        now = now_iso()
         with self._lock:
-            now = utc_now()
-            existing = self.conn.execute("SELECT name FROM playlists WHERE url = ?", (url,)).fetchone()
-            playlist_id = url.split("list=", 1)[1].split("&", 1)[0] if "list=" in url else ""
-            incoming_is_fallback = bool(playlist_id and name == playlist_id)
-            preserved_name = existing["name"] if existing and incoming_is_fallback and existing["name"] != playlist_id else name
-            self.conn.execute(
-                """
-                INSERT INTO playlists (url, name, category, quality, audio_only, audio_format, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(url) DO UPDATE SET name=excluded.name, category=excluded.category,
-                    quality=excluded.quality, audio_only=excluded.audio_only, audio_format=excluded.audio_format,
-                    updated_at=excluded.updated_at
-                """,
-                (url, preserved_name, category, quality, 1 if audio_only else 0, audio_format, now, now),
-            )
-            self.conn.commit()
-            row = self.conn.execute("SELECT * FROM playlists WHERE url = ?", (url,)).fetchone()
-        return dict(row)
+            self._connection.execute("""INSERT INTO jobs
+                (id,url,status,category,quality,audio_only,audio_format,created_at,updated_at,playlist_id)
+                VALUES (?,?, 'queued', ?, ?, ?, ?, ?, ?, ?)""",
+                (job_id, url, category, quality, int(audio_only), audio_format, now, now, playlist_id))
+            self._connection.commit()
+            job = self.get_job(job_id)
+            assert job is not None
+            return job
 
-    def list_playlists(self) -> list[dict[str, Any]]:
+    def get_job(self, job_id: str) -> dict[str, Any] | None:
         with self._lock:
-            rows = self.conn.execute("SELECT * FROM playlists ORDER BY updated_at DESC").fetchall()
-        return [dict(row) for row in rows]
+            row = self._connection.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+            return dict(row) if row else None
 
-    def get_playlist(self, playlist_id: int) -> Optional[dict[str, Any]]:
+    def list_jobs(self, *, limit: int = 100, offset: int = 0, status: str = "", search: str = "") -> tuple[list[dict[str, Any]], int]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if status:
+            clauses.append("status=?")
+            params.append(status)
+        if search:
+            clauses.append("(title LIKE ? OR url LIKE ? OR id LIKE ? OR filename LIKE ?)")
+            needle = f"%{search}%"
+            params.extend([needle] * 4)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._lock:
-            row = self.conn.execute("SELECT * FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
-        return dict(row) if row else None
-
-    def get_playlist_by_sync_job(self, job_id: str) -> Optional[dict[str, Any]]:
-        with self._lock:
-            row = self.conn.execute("SELECT * FROM playlists WHERE sync_job_id = ?", (job_id,)).fetchone()
-        return dict(row) if row else None
-
-    def mark_playlist_synced(self, playlist_id: int) -> None:
-        with self._lock:
-            now = utc_now()
-            self.conn.execute("UPDATE playlists SET last_synced_at=?, updated_at=? WHERE id=?", (now, now, playlist_id))
-            self.conn.commit()
-
-    def update_playlist_name(self, url: str, name: str) -> None:
-        with self._lock:
-            self.conn.execute("UPDATE playlists SET name=?, updated_at=? WHERE url=?", (name, utc_now(), url))
-            self.conn.commit()
-
-    def update_playlist_sync_state(self, playlist_id: int, sync_status: str, sync_job_id: Optional[str] = None,
-                                  last_successful_sync_at: Optional[str] = None) -> None:
-        """Update playlist sync status and related fields."""
-        with self._lock:
-            updates = ["sync_status = ?", "updated_at = ?"]
-            params = [sync_status, utc_now()]
-            
-            if sync_job_id is not None:
-                updates.append("sync_job_id = ?")
-                params.append(sync_job_id)
-                
-            if last_successful_sync_at is not None:
-                updates.append("last_successful_sync_at = ?")
-                params.append(last_successful_sync_at)
-                
-            # Keep the legacy timestamp populated when a sync is requested,
-            # while preserving the previous successful timestamp until the
-            # asynchronous job completes.
-            if sync_status == "requested":
-                updates.append("last_synced_at = COALESCE(last_synced_at, ?)")
-                params.append(utc_now())
-            elif sync_status == "successful":
-                successful_at = last_successful_sync_at or utc_now()
-                updates.append("last_synced_at = ?")
-                params.append(successful_at)
-                
-            params.append(playlist_id)
-            query = f"UPDATE playlists SET {', '.join(updates)} WHERE id = ?"
-            self.conn.execute(query, params)
-            self.conn.commit()
-
-    def update_playlist_sync_results(self, playlist_id: int, discovered_count: int, downloaded_count: int,
-                                    already_present_count: int, failed_count: int) -> None:
-        """Update playlist sync result counters."""
-        with self._lock:
-            self.conn.execute(
-                "UPDATE playlists SET discovered_count=?, downloaded_count=?, already_present_count=?, failed_count=?, updated_at=? WHERE id=?",
-                (discovered_count, downloaded_count, already_present_count, failed_count, utc_now(), playlist_id)
-            )
-            self.conn.commit()
-
-    def update_playlist_settings(self, playlist_id: int, category: str, quality: str, audio_only: bool, audio_format: str) -> None:
-        """Update playlist settings without changing the name."""
-        with self._lock:
-            self.conn.execute(
-                "UPDATE playlists SET category=?, quality=?, audio_only=?, audio_format=?, updated_at=? WHERE id=?",
-                (category, quality, 1 if audio_only else 0, audio_format, utc_now(), playlist_id)
-            )
-            self.conn.commit()
-
-    def get_job(self, job_id: str) -> Optional[dict[str, Any]]:
-        with self._lock:
-            row = self.conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
-        return dict(row) if row else None
+            total = self._connection.execute(f"SELECT COUNT(*) FROM jobs{where}", params).fetchone()[0]
+            rows = self._connection.execute(f"SELECT * FROM jobs{where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                                            [*params, max(1, min(limit, 200)), max(0, offset)]).fetchall()
+        return [dict(row) for row in rows], int(total)
 
     def update_job(self, job_id: str, **fields: Any) -> None:
         if not fields:
             return
-        fields["updated_at"] = utc_now()
-        columns = ", ".join(f"{k} = ?" for k in fields)
-        values = list(fields.values()) + [job_id]
+        fields["updated_at"] = now_iso()
+        names = list(fields)
         with self._lock:
-            self.conn.execute(f"UPDATE jobs SET {columns} WHERE id = ?", values)
-            self.conn.commit()
+            self._connection.execute(f"UPDATE jobs SET {', '.join(f'{name}=?' for name in names)} WHERE id=?",
+                                     [*(fields[name] for name in names), job_id])
+            self._connection.commit()
 
-    def update_job_if_status_in(self, job_id: str, allowed_statuses: set[str], **fields: Any) -> bool:
-        """Atomically update a job only if its current status is one of allowed_statuses.
-
-        Returns True if the update applied. Used to avoid check-then-act races between
-        cancellation and the worker loop transitioning a job to 'downloading'.
-        """
-        if not fields:
-            return False
-        fields["updated_at"] = utc_now()
-        columns = ", ".join(f"{k} = ?" for k in fields)
-        placeholders = ", ".join("?" for _ in allowed_statuses)
-        values = list(fields.values()) + [job_id] + list(allowed_statuses)
+    def prune_terminal_jobs(self, retention_hours: int, max_history_jobs: int) -> int:
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=retention_hours)).isoformat()
+        terminal = "('finished','error','cancelled')"
         with self._lock:
-            cur = self.conn.execute(
-                f"UPDATE jobs SET {columns} WHERE id = ? AND status IN ({placeholders})",
-                values,
-            )
-            self.conn.commit()
-        return cur.rowcount > 0
-
-    def list_jobs(self, *, limit: int, offset: int, status: str = "", category: str = "", search: str = "") -> tuple[list[dict[str, Any]], int]:
-        safe_limit = max(1, min(limit, 500))
-        safe_offset = max(0, offset)
-        where_parts = []
-        params: list[Any] = []
-        
-        if status:
-            where_parts.append("status = ?")
-            params.append(status)
-        if category:
-            where_parts.append("category = ?")
-            params.append(category)
-        if search:
-            where_parts.append("(title LIKE ? OR url LIKE ? OR filename LIKE ? OR id LIKE ?)")
-            search_term = f"%{search}%"
-            params.extend([search_term, search_term, search_term, search_term])
-        
-        where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
-
-        with self._lock:
-            total = self.conn.execute(f"SELECT COUNT(*) AS c FROM jobs {where}", params).fetchone()["c"]
-            rows = self.conn.execute(
-                f"""
-                SELECT * FROM jobs
-                {where}
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                params + [safe_limit, safe_offset],
-            ).fetchall()
-        return [dict(row) for row in rows], int(total)
-
-    def list_pending_ids(self) -> list[str]:
-        with self._lock:
-            rows = self.conn.execute("SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at ASC").fetchall()
-        return [row["id"] for row in rows]
+            removed = self._connection.execute(f"DELETE FROM jobs WHERE status IN {terminal} AND updated_at < ?", (cutoff,)).rowcount
+            excess = self._connection.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('finished','error','cancelled')").fetchone()[0] - max_history_jobs
+            if excess > 0:
+                removed += self._connection.execute("""DELETE FROM jobs WHERE id IN (
+                    SELECT id FROM jobs WHERE status IN ('finished','error','cancelled')
+                    ORDER BY updated_at ASC LIMIT ?)""", (excess,)).rowcount
+            self._connection.commit()
+            return int(removed)
 
     def count_active(self) -> int:
         with self._lock:
-            row = self.conn.execute("SELECT COUNT(*) AS c FROM jobs WHERE status IN ('queued', 'downloading')").fetchone()
-        return int(row["c"])
+            return int(self._connection.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','downloading')").fetchone()[0])
 
     def health_check(self) -> bool:
         try:
             with self._lock:
-                self.conn.execute("SELECT 1")
+                self._connection.execute("SELECT 1").fetchone()
             return True
         except sqlite3.Error:
             return False
 
-    def prune_terminal_jobs(self, retention_hours: int, max_history_jobs: int) -> int:
-        removed = 0
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=retention_hours)).isoformat()
+    def status_counts(self) -> dict[str, int]:
         with self._lock:
-            cur = self.conn.execute(
-                """
-                DELETE FROM jobs
-                WHERE status IN ('finished','error','cancelled')
-                  AND updated_at < ?
-                """,
-                (cutoff,),
-            )
-            removed += cur.rowcount
+            rows = self._connection.execute("SELECT status,COUNT(*) AS count FROM jobs GROUP BY status").fetchall()
+        return {str(row["status"]): int(row["count"]) for row in rows}
 
-            row = self.conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()
-            total = int(row["c"])
-            overflow = total - max_history_jobs
-            if overflow > 0:
-                cur = self.conn.execute(
-                    """
-                    DELETE FROM jobs
-                    WHERE id IN (
-                        SELECT id FROM jobs
-                        WHERE status IN ('finished','error','cancelled')
-                        ORDER BY updated_at ASC
-                        LIMIT ?
-                    )
-                    """,
-                    (overflow,),
-                )
-                removed += cur.rowcount
-            self.conn.commit()
-        return removed
-
-    def clear_terminal_jobs(self) -> int:
+    def queued_jobs(self) -> list[str]:
         with self._lock:
-            cur = self.conn.execute("DELETE FROM jobs WHERE status IN ('finished','error','cancelled')")
-            removed = cur.rowcount
-            self.conn.commit()
-        return removed
+            return [row[0] for row in self._connection.execute("SELECT id FROM jobs WHERE status='queued' ORDER BY created_at")]
+
+    def recover_interrupted_jobs(self) -> list[str]:
+        with self._lock:
+            self._connection.execute("UPDATE jobs SET status='queued',stage='Queued',updated_at=? WHERE status='downloading'", (now_iso(),))
+            self._connection.commit()
+            return self.queued_jobs()
+
+    def clear_finished(self) -> int:
+        with self._lock:
+            cursor = self._connection.execute("DELETE FROM jobs WHERE status IN ('finished','error','cancelled')")
+            self._connection.commit()
+            return cursor.rowcount
+
+    def list_playlists(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [dict(row) for row in self._connection.execute("SELECT * FROM playlists ORDER BY updated_at DESC")]
+
+    def get_playlist(self, playlist_id: int) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute("SELECT * FROM playlists WHERE id=?", (playlist_id,)).fetchone()
+            return dict(row) if row else None
+
+    def get_playlist_for_url(self, url: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute("SELECT * FROM playlists WHERE url=?", (url,)).fetchone()
+            return dict(row) if row else None
+
+    def upsert_playlist(self, url: str, name: str, category: str, quality: str, audio_only: bool, audio_format: str) -> dict[str, Any]:
+        from urllib.parse import parse_qs, urlparse
+        now = now_iso()
+        existing = self.get_playlist_for_url(url)
+        playlist_key = parse_qs(urlparse(url).query).get("list", [""])[0]
+        if existing and playlist_key and name == playlist_key:
+            name = existing["name"]
+        name = name or (existing["name"] if existing else url)
+        with self._lock:
+            self._connection.execute("""INSERT INTO playlists (url,name,category,quality,audio_only,audio_format,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(url) DO UPDATE SET
+                name=CASE WHEN excluded.name='' OR excluded.name=excluded.url THEN playlists.name ELSE excluded.name END,
+                category=excluded.category,quality=excluded.quality,audio_only=excluded.audio_only,
+                audio_format=excluded.audio_format,updated_at=excluded.updated_at""",
+                (url,name,category,quality,int(audio_only),audio_format,now,now))
+            self._connection.commit()
+        result = self.get_playlist_for_url(url)
+        assert result is not None
+        return result
+
+    def update_playlist_settings(self, playlist_id: int, category: str, quality: str, audio_only: bool, audio_format: str) -> None:
+        with self._lock:
+            self._connection.execute("UPDATE playlists SET category=?,quality=?,audio_only=?,audio_format=?,updated_at=? WHERE id=?",
+                                     (category,quality,int(audio_only),audio_format,now_iso(),playlist_id))
+            self._connection.commit()
+
+    def update_playlist_name(self, url: str, name: str) -> None:
+        if name:
+            with self._lock:
+                self._connection.execute("UPDATE playlists SET name=?,updated_at=? WHERE url=?", (name,now_iso(),url))
+                self._connection.commit()
+
+    def update_playlist_results(self, playlist_id: int, discovered: int, downloaded: int, existing: int, failed: int) -> None:
+        with self._lock:
+            self._connection.execute("UPDATE playlists SET discovered_count=?,downloaded_count=?,already_present_count=?,failed_count=?,updated_at=? WHERE id=?",
+                                     (discovered,downloaded,existing,failed,now_iso(),playlist_id))
+            self._connection.commit()
+
+
+    def set_playlist_sync(self, playlist_id: int, status: str, job_id: str | None = None, success: bool = False) -> None:
+        now = now_iso()
+        with self._lock:
+            self._connection.execute("""UPDATE playlists SET sync_status=?,sync_job_id=COALESCE(?,sync_job_id),
+                last_successful_sync_at=CASE WHEN ? THEN ? ELSE last_successful_sync_at END,
+                last_synced_at=CASE WHEN ? THEN ? ELSE last_synced_at END,updated_at=? WHERE id=?""",
+                (status,job_id,int(success),now,int(success),now,now,playlist_id))
+            self._connection.commit()
+
+    def playlist_for_job(self, job_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute("SELECT * FROM playlists WHERE sync_job_id=?", (job_id,)).fetchone()
+            return dict(row) if row else None
