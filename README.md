@@ -57,6 +57,7 @@ The v1 application source remains in Git history and can be restored by checking
 | `YTPI_ALLOWED_CIDRS` | localhost and private IPv4 ranges | Addresses allowed to reach every route, including probes. Set narrowly for your network. |
 | `YTPI_TRUST_PROXY` | `0` | Trust the first `X-Forwarded-For` address. Enable only behind a trusted proxy. |
 | `YTPI_BLOCK_PRIVATE_URLS` | `0` | Reject literal private/reserved IP source URLs; does not resolve hostnames. |
+| `YTPI_WRITE_AUTO_SUBS` | `0` | Fetch/convert English auto-captions. Optional because YouTube subtitle requests can be rate-limited independently of video downloads. |
 | `YTPI_MAX_WORKERS` | `1` | Concurrent downloader worker count; `0` disables workers. |
 | `YTPI_MAX_QUEUE_SIZE` | `200` | Maximum active jobs. |
 | `YTPI_JOB_TIMEOUT_SECONDS` | `3600` | Per-job timeout in seconds. |

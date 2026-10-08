@@ -135,7 +135,9 @@ class DownloadManager:
             command += ["--extract-audio", "--audio-format", job["audio_format"] or "mp3"]
         else:
             selector = "bestvideo+bestaudio/best" if job["quality"] == "max" else f"bestvideo[height<={job['quality']}]+bestaudio/best"
-            command += ["-f", selector, "--write-auto-subs", "--sub-langs", "en", "--convert-subs", "srt"]
+            command += ["-f", selector]
+            if self.settings.write_auto_subs:
+                command += ["--write-auto-subs", "--sub-langs", "en", "--convert-subs", "srt"]
         command += ["-o", "%(playlist)s/%(title)s.%(ext)s" if "list=" in job["url"] else "%(title)s.%(ext)s", job["url"]]
         attempt_count = int(job.get("attempt_count") or 0) + 1
         self.repo.update_job(job_id, status="downloading", stage="Preparing", error="", started_at=now_iso(), attempt_count=attempt_count)

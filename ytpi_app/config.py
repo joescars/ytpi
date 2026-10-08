@@ -31,6 +31,7 @@ class Settings:
     ffmpeg_path: str
     enable_remote_components: bool
     block_private_urls: bool
+    write_auto_subs: bool = False
 
 
 def _integer(name: str, default: int, minimum: int) -> int:
@@ -65,6 +66,7 @@ def load_settings() -> Settings:
         ffmpeg_path=os.getenv("YTPI_FFMPEG_PATH", ""),
         enable_remote_components=os.getenv("YTPI_ENABLE_REMOTE_COMPONENTS", "1").lower() not in {"0", "false", "no", "off"},
         block_private_urls=os.getenv("YTPI_BLOCK_PRIVATE_URLS", "0").lower() in {"1", "true", "yes", "on"},
+        write_auto_subs=os.getenv("YTPI_WRITE_AUTO_SUBS", "0").lower() in {"1", "true", "yes", "on"},
     )
 
 
