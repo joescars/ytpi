@@ -14,7 +14,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Copy files to folder
+      - name: Update deployment Compose file
         run: |
           if [ -z "$APP_DIR" ]; then
             echo "Repository variable YTPI_DOCKER_APP_DIR must be set to the writable Docker deployment directory." >&2
@@ -33,41 +33,26 @@ jobs:
             "$WORKSPACE/"*) echo "YTPI_DOCKER_APP_DIR cannot be inside the runner checkout." >&2; exit 1 ;;
           esac
           mkdir -p "$APP_DIR"
-          rsync -av --delete \
-            --exclude='.devcontainer/' \
-            --exclude='.github/' \
-            --exclude='_archived/' \
-            --exclude='.vscode/' \
-            --exclude='.git/' \
-            --exclude='.env' \
-            --exclude='.deployment-backups/' \
-            --exclude='data/' \
-            --exclude='downloads/' \
-            "${{ github.workspace }}/" "$APP_DIR/"
+          install -m 0644 "$GITHUB_WORKSPACE/docker-compose.yml" "$APP_DIR/docker-compose.yml"
 
-      - name: Build and Run Docker Container
+      - name: Pull and Run Docker Image
         run: |
           cd "$APP_DIR"
-          python3 -m venv .venv
-          source .venv/bin/activate
-          pip install --upgrade pip
-          pip install -U yt-dlp-ejs
-          pip install -r requirements.txt
-          pytest -q
-          docker compose down --remove-orphans
-          # The legacy stack used container_name: ytpi under a different Compose
-          # project. Compose down only removes containers in this project, so
-          # remove that exact stale container before reusing its fixed name.
-          docker rm -f ytpi 2>/dev/null || true
+          docker compose config --quiet
+          docker compose pull ytpi
           # Persist a consistent SQLite backup outside data/ because that directory
           # may be owned by the app user and read-only to this deployment runner.
           if [ -f data/jobs.db ]; then
             backup_dir="$APP_DIR/.deployment-backups"
             mkdir -p "$backup_dir"
-            backup="$backup_dir/jobs-pre-v2-$(date -u +%Y%m%dT%H%M%SZ).sqlite3"
+            backup="$backup_dir/jobs-pre-deploy-$(date -u +%Y%m%dT%H%M%SZ).sqlite3"
             python3 -c 'import os,sqlite3,sys; src=sqlite3.connect("file:data/jobs.db?mode=ro",uri=True); dst=sqlite3.connect(sys.argv[1]); src.backup(dst); dst.close(); src.close(); os.chmod(sys.argv[1],0o600); print("SQLite backup created:",sys.argv[1])' "$backup"
           fi
-          docker compose up -d --build
+          docker compose down --remove-orphans
+          # The legacy stack may use container_name: ytpi under a different Compose
+          # project, so remove that exact stale container before reusing its fixed name.
+          docker rm -f ytpi 2>/dev/null || true
+          docker compose up -d --no-build
           docker compose ps
           for attempt in $(seq 1 30); do
             health="$(docker inspect --format '{{.State.Health.Status}}' ytpi 2>/dev/null || true)"
@@ -88,5 +73,4 @@ jobs:
           done
           docker compose logs --no-color --tail=100 ytpi
           exit 1
-
 
