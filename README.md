@@ -32,17 +32,18 @@ Run tests:
 
 ## Docker deployment
 
-The root Compose app is the v2 site, retains the established container/service name `ytpi`, publishes port **7434**, mounts job history from `./data`, and uses `/mnt/usb0/samsung/media/YouTube` for media by default. Override `YTPI_HOST_DOWNLOADS_DIR` if the deployment host uses a different media path.
+The root Compose app pulls the public `ghcr.io/joescars/ytpi` image, retains the established container/service name `ytpi`, publishes port **7434**, mounts job history from `./data`, and uses `/mnt/usb0/samsung/media/YouTube` for media by default. It uses the `latest` image tag unless `YTPI_IMAGE_TAG` is set. Override `YTPI_HOST_DOWNLOADS_DIR` if the deployment host uses a different media path.
 
 ```bash
 docker compose config --quiet
-docker compose up -d --build
+docker compose pull ytpi
+docker compose up -d --no-build
 docker compose ps
 curl --fail http://localhost:7434/healthz
 curl --fail http://localhost:7434/readyz
 ```
 
-The deployment workflow is manually dispatched. It creates a consistent SQLite backup under `data/backups/` before first v2 startup. V2 applies additive schema migration to the existing `data/jobs.db`; keep the backup until the new site and history are verified. Downloads stay in the existing mounted media directory. Do not run two app versions against the same SQLite database concurrently.
+The deployment workflow is manually dispatched. It updates only the Compose file on the host, pulls the published image, and creates a consistent SQLite backup under `.deployment-backups/` before restarting the service. V2 applies additive schema migration to the existing `data/jobs.db`; keep the backup until the new site and history are verified. The host `.env`, database, and existing mounted media directory are preserved. Do not run two app versions against the same SQLite database concurrently.
 
 To stop the service without deleting bind-mounted history or media, run `docker compose down` from the deployment directory. Do not run `docker compose down -v` if you want to preserve Compose-managed volumes.
 
@@ -54,6 +55,7 @@ The v1 application source remains in Git history and can be restored by checking
 |---|---|---|
 | `YTPI_HOST` / `YTPI_PORT` | `0.0.0.0` / `7434` | Listen address/port inside the app/container. |
 | `YTPI_HOST_PORT` | `7434` | Host port used by the root Docker service. |
+| `YTPI_IMAGE_TAG` | `latest` | Public GHCR image tag to deploy; can be pinned to a commit-specific tag. |
 | `YTPI_ALLOWED_CIDRS` | localhost and private IPv4 ranges | Addresses allowed to reach every route, including probes. Set narrowly for your network. |
 | `YTPI_TRUST_PROXY` | `0` | Trust the first `X-Forwarded-For` address. Enable only behind a trusted proxy. |
 | `YTPI_BLOCK_PRIVATE_URLS` | `0` | Reject literal private/reserved IP source URLs; does not resolve hostnames. |
@@ -98,6 +100,6 @@ The interface uses tonal Material 3 surfaces and color roles, Google-blue emphas
 
 ## Upgrade and rollback notes
 
-The Docker workflow backs up the current SQLite database to `data/backups/` before v2 starts and migrates its schema additively in place. Keep that backup until you confirm v2 displays the expected job history and can download to the configured media folder. The existing external media folder is mounted in place; no media copy is required.
+The Docker workflow backs up the current SQLite database to `.deployment-backups/` before each deployment and migrates its schema additively in place. Keep a backup until you confirm v2 displays the expected job history and can download to the configured media folder. The existing external media folder is mounted in place; no media copy is required.
 
 To roll back, stop v2 first, restore a pre-v2 database backup, then check out the previous v1 commit and redeploy. Do not start v1 against a database already migrated by v2; the v1 code may not understand the added columns. Preserve downloaded media throughout rollback.

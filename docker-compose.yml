@@ -1,6 +1,6 @@
 services:
   ytpi:
-    build: .
+    image: ghcr.io/joescars/ytpi:${YTPI_IMAGE_TAG:-latest}
     container_name: ytpi
     ports:
       - "${YTPI_HOST_BIND_ADDRESS:-0.0.0.0}:${YTPI_HOST_PORT:-7434}:7434"
