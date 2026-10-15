@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-14T23:24:40.193173+00:00",
+  "title": "Design System: YTPI",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Friendly Interface Blue",
+        "canonical": "#0b57d0",
+        "tonalRamp": ["#000825", "#001f5a", "#003995", "#0a56cf", "#337bf7", "#6fa4ff", "#abcaff", "#e6efff"]
+      },
+      "primary-dark": {
+        "role": "primary",
+        "displayName": "Soft Sky Blue",
+        "canonical": "#8ab4f8",
+        "tonalRamp": ["#000924", "#002057", "#1c407a", "#3b609e", "#5b82c3", "#7ca6e9", "#aacbff", "#e5efff"]
+      },
+      "neutral-bg": {
+        "role": "neutral",
+        "displayName": "Cloud Background",
+        "canonical": "#f8f9fa",
+        "tonalRamp": ["#0b0b0c", "#242526", "#414243", "#606162", "#818283", "#a4a5a6", "#c8c9ca", "#edeeef"]
+      },
+      "neutral-bg-dark": {
+        "role": "neutral",
+        "displayName": "Dark Canvas",
+        "canonical": "#101214",
+        "tonalRamp": ["#090b0d", "#232527", "#404245", "#5f6164", "#808385", "#a2a5a8", "#c6c9cc", "#eceff2"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "White Surface",
+        "canonical": "#ffffff",
+        "tonalRamp": ["#0b0b0b", "#252525", "#424242", "#616161", "#828282", "#a5a5a5", "#c9c9c9", "#eeeeee"]
+      },
+      "surface-dark": {
+        "role": "neutral",
+        "displayName": "Dark Surface",
+        "canonical": "#16191c",
+        "tonalRamp": ["#090b0e", "#222529", "#3f4246", "#5e6265", "#7f8387", "#a1a5aa", "#c5cace", "#ebeff3"]
+      },
+      "tertiary": {
+        "role": "tertiary",
+        "displayName": "Playlist Violet",
+        "canonical": "#754b91",
+        "tonalRamp": ["#150022", "#360a4e", "#552c6f", "#764c92", "#986db6", "#bc90db", "#e0b5ff", "#f5e9ff"]
+      },
+      "error": {
+        "role": "error",
+        "displayName": "State Red",
+        "canonical": "#c5221f",
+        "tonalRamp": ["#1f0000", "#4d0002", "#810005", "#b70910", "#e04138", "#ff7365", "#ffb3a8", "#ffe9e5"]
+      },
+      "success": {
+        "role": "success",
+        "displayName": "State Green",
+        "canonical": "#188038",
+        "tonalRamp": ["#001003", "#002e0d", "#00511d", "#01762e", "#38994f", "#5fbd71", "#84e295", "#c8ffcf"]
+      },
+      "warning": {
+        "role": "warning",
+        "displayName": "State Amber",
+        "canonical": "#b06000",
+        "tonalRamp": ["#160700", "#3b1c00", "#643400", "#904e00", "#bc6b19", "#e28e45", "#ffb77e", "#ffeadb"]
+      },
+      "outline": {
+        "role": "neutral",
+        "displayName": "Quiet Outline",
+        "canonical": "#b8bcc1",
+        "tonalRamp": ["#090b0f", "#222529", "#3f4246", "#5e6266", "#7f8387", "#a1a5aa", "#c5c9cf", "#ebeff4"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Page Display", "purpose": "Main page heading." },
+      "headline": { "displayName": "Section Headline", "purpose": "Library section heading." },
+      "title": { "displayName": "Card Title", "purpose": "Form and card headings." },
+      "body": { "displayName": "Body Copy", "purpose": "Default interface text." },
+      "label": { "displayName": "Field Label", "purpose": "Form labels and small controls." }
+    },
+    "shadows": [
+      { "name": "resting-light", "value": "0 1px 2px rgba(60,64,67,.12),0 1px 3px rgba(60,64,67,.08)", "purpose": "Subtle lift for primary cards and buttons in light theme." },
+      { "name": "floating-light", "value": "0 4px 14px rgba(60,64,67,.12)", "purpose": "Details dialog and transient toast in light theme." },
+      { "name": "resting-dark", "value": "0 1px 4px rgba(0,0,0,.3)", "purpose": "Resting surfaces in dark theme." },
+      { "name": "floating-dark", "value": "0 6px 20px rgba(0,0,0,.32)", "purpose": "Floating surfaces in dark theme." }
+    ],
+    "motion": [
+      { "name": "control-state", "value": "150ms to 180ms", "purpose": "Button, input, selection, and navigation state transitions." },
+      { "name": "progress-fill", "value": "300ms", "purpose": "Smooth visible change to download progress." },
+      { "name": "dialog-slide", "value": "220ms cubic-bezier(.2,0,0,1)", "purpose": "Details panel enters from the inline edge." }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "760px" },
+      { "name": "narrow-mobile", "value": "380px" },
+      { "name": "rail-reflow", "value": "1100px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main download action with strong blue emphasis.",
+      "html": "<button class=\"ds-btn-primary\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"16\" height=\"16\"><path d=\"M12 3v12m0 0 5-5m-5 5-5-5M5 19h14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>Queue download</button>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:44px;padding:0 20px;border:0;border-radius:999px;background:#0b57d0;color:#fff;font:600 14px Roboto,Arial,sans-serif;cursor:pointer;transition:filter .15s,box-shadow .15s,transform .12s}.ds-btn-primary:hover{filter:brightness(.96)}.ds-btn-primary:focus-visible{outline:2px solid #0b57d0;outline-offset:3px}.ds-btn-primary:active{transform:scale(.985)}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Clear surface field with a visible focus ring.",
+      "html": "<label class=\"ds-field-label\" for=\"ds-url\">Video or playlist links</label><input class=\"ds-input\" id=\"ds-url\" placeholder=\"Paste a link\"/>",
+      "css": ".ds-field-label{display:block;margin:0 0 7px;color:#5f6368;font:600 13px/1.4 Roboto,Arial,sans-serif}.ds-input{width:100%;min-height:48px;padding:12px 14px;border:1px solid #b8bcc1;border-radius:12px;background:#fff;color:#1f1f1f;font:400 15px/1.55 Roboto,Arial,sans-serif;transition:border-color .15s,box-shadow .15s}.ds-input:focus{border-color:#0b57d0;outline:none;box-shadow:0 0 0 3px rgba(11,87,208,.17)}.ds-input:focus-visible{outline:2px solid #0b57d0;outline-offset:3px}"
+    },
+    {
+      "name": "Selected Navigation Item",
+      "kind": "nav",
+      "refersTo": "navigation-selected",
+      "description": "Selected destination in the app's navigation rail or mobile bar.",
+      "html": "<a class=\"ds-nav-item\" href=\"#downloads\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"20\" height=\"20\"><path d=\"M5 4h14v16H5zM8 8h8M8 12h8M8 16h5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg>Downloads</a>",
+      "css": ".ds-nav-item{display:flex;align-items:center;gap:12px;min-height:48px;padding:0 14px;border-radius:16px;background:#d3e3fd;color:#041e49;text-decoration:none;font:500 14px Roboto,Arial,sans-serif;transition:background .18s,color .18s}.ds-nav-item:hover{background:#eef2f8;color:#1f1f1f}.ds-nav-item:focus-visible{outline:2px solid #0b57d0;outline-offset:3px}"
+    },
+    {
+      "name": "Surface Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Primary form or playlist container with restrained elevation.",
+      "html": "<section class=\"ds-card\"><h2>Start a download</h2><p>Paste one or more video or playlist links.</p></section>",
+      "css": ".ds-card{padding:26px 28px 23px;border:1px solid #dadce0;border-radius:24px;background:#fff;color:#1f1f1f;box-shadow:0 1px 2px rgba(60,64,67,.12),0 1px 3px rgba(60,64,67,.08);font:400 15px/1.55 Roboto,Arial,sans-serif}.ds-card h2{margin:0 0 6px;font-size:20px;font-weight:600;letter-spacing:-.02em}.ds-card p{margin:0;color:#5f6368;font-size:14px}"
+    },
+    {
+      "name": "Download Progress",
+      "kind": "custom",
+      "description": "A labeled progress bar paired with a numeric percentage.",
+      "html": "<div class=\"ds-progress\"><div class=\"ds-progress-track\" role=\"progressbar\" aria-label=\"Download progress\" aria-valuemin=\"0\" aria-valuemax=\"100\" aria-valuenow=\"58\"><span></span></div><strong>58%</strong></div>",
+      "css": ".ds-progress{display:flex;align-items:center;gap:10px;color:#5f6368;font:400 11px Roboto,Arial,sans-serif}.ds-progress-track{height:6px;max-width:500px;flex:1;overflow:hidden;border-radius:999px;background:#e6ecf4}.ds-progress-track span{display:block;width:58%;height:100%;border-radius:inherit;background:#0b57d0;transition:width .3s}.ds-progress strong{width:36px;font-size:11px;font-weight:400;text-align:right}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Friendly Home Console",
+    "overview": "YTPI's interface makes a household download queue feel familiar and manageable rather than technical. Plain labels, visible progress, responsive navigation, and role-based states help people queue and manage local media.",
+    "keyCharacteristics": [
+      "Familiar Roboto typography and straightforward interface language.",
+      "Blue-led palette with light and dark theme roles.",
+      "Rounded surfaces, pill-shaped actions, and restrained elevation.",
+      "Progress and status stay visible in the download workflow.",
+      "Responsive navigation and layouts for desktop and mobile."
+    ],
+    "rules": [
+      { "name": "The Status-Has-a-Color Rule", "body": "Keep semantic success, warning, error, and in-progress colors attached to the corresponding job state; do not use them as unrelated decoration.", "section": "colors" },
+      { "name": "The Plain-Language Rule", "body": "Prefer short, task-oriented labels and explanatory copy; reserve technical monospace text for the detailed output view.", "section": "typography" }
+    ],
+    "dos": [
+      "Do preserve the light and dark theme role relationships when extending the UI.",
+      "Do keep download status, progress, and percentage together in the job row.",
+      "Do use the established blue for primary actions, selection, focus, and progress.",
+      "Do keep touch controls at least 44px high where established and preserve visible keyboard focus.",
+      "Do let desktop and mobile navigation follow their distinct existing patterns."
+    ],
+    "donts": [
+      "Don't use status color as the only indication of a job's state.",
+      "Don't make technical output the default content shown to a non-technical user; keep it in details.",
+      "Don't remove the configured mobile bottom navigation or ignore its safe-area spacing.",
+      "Don't add new palette roles or typefaces without a product or interface need."
+    ]
+  }
+}
