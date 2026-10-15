@@ -18,6 +18,44 @@
     window.setTimeout(() => item.remove(), 4500);
   }
 
+  function queueReceipt(total) {
+    const count = Math.max(0, Number(total) || 0);
+    const item = element('section', 'toast queue-receipt');
+    item.setAttribute('aria-label', 'Downloads added to queue');
+
+    const icon = element('span', 'queue-receipt-icon');
+    icon.setAttribute('aria-hidden', 'true');
+    const check = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    check.setAttribute('viewBox', '0 0 24 24');
+    check.setAttribute('focusable', 'false');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'm5 12 4 4L19 6');
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', 'currentColor');
+    path.setAttribute('stroke-width', '2.4');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    check.append(path);
+    icon.append(check);
+
+    const copy = element('div', 'queue-receipt-copy');
+    copy.append(element('strong', '', `${count} download${count === 1 ? '' : 's'} added to your queue`));
+    copy.append(element('span', '', 'Follow progress in Downloads.'));
+
+    const dismiss = element('button', 'queue-receipt-dismiss');
+    dismiss.type = 'button';
+    dismiss.setAttribute('aria-label', 'Dismiss queue confirmation');
+    dismiss.innerHTML = '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+    dismiss.addEventListener('click', () => item.remove(), { once: true });
+
+    const progressLink = element('a', 'queue-receipt-link', 'View progress');
+    progressLink.href = '#downloads';
+    progressLink.addEventListener('click', () => item.remove(), { once: true });
+    item.append(icon, copy, progressLink, dismiss);
+    toastRegion.append(item);
+    window.setTimeout(() => item.remove(), 8000);
+  }
+
   function selectedTheme() {
     const saved = localStorage.getItem('ytpi-theme');
     return saved === 'dark' || saved === 'light' ? saved : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -160,7 +198,7 @@
     const urls = $('#urls').value.split(/[\n,]+/).map((url) => url.trim()).filter(Boolean);
     try {
       const data = await api('/api/jobs', { method: 'POST', body: JSON.stringify({ urls, category: custom ? '' : $('#category').value, custom_category: custom ? $('#custom-category').value : '', quality: $('#quality').value, audio_only: audioToggle.checked, audio_format: $('#audio-format').value }) });
-      toast(`${data.total} download${data.total === 1 ? '' : 's'} added to your queue`);
+      queueReceipt(data.total);
       $('#urls').value = '';
       if (custom) { $('#category').value = ''; $('#custom-field').hidden = true; }
       await loadJobs(false);
