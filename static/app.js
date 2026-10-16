@@ -106,7 +106,7 @@
     const progressDetails = [];
     if (job.status === 'downloading' && job.stage === 'Preparing') progressDetails.push('Getting the download ready…');
     else if (job.status === 'downloading' && job.stage === 'Processing') progressDetails.push('Finishing the file…');
-    else {
+    else if (job.status === 'downloading') {
       if (job.speed && !/unknown/i.test(job.speed)) progressDetails.push(job.speed);
       if (job.eta && /^[0-9:]+$/.test(job.eta)) progressDetails.push(`About ${job.eta} left`);
     }

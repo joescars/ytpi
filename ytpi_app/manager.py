@@ -13,10 +13,27 @@ from typing import Any
 from .config import Settings, safe_category
 from .repository import JobRepository, now_iso
 
-_PROGRESS = re.compile(r"(?P<percent>\d+(?:\.\d+)?)%.*?\bat\s+(?P<speed>[^\s]+).*?\bETA\s+(?P<eta>[0-9:]+)", re.I)
+_PROGRESS = re.compile(r"(?P<percent>\d+(?:\.\d+)?)%", re.I)
+_PROGRESS_SPEED = re.compile(r"\bat\s+(?P<speed>[^\s]+)", re.I)
+_PROGRESS_ETA = re.compile(r"\bETA\s+(?P<eta>[^\s]+)", re.I)
 _DESTINATION = re.compile(r"Destination:\s+(.+)$")
 _TITLE = re.compile(r"__YTPI_TITLE__(.+)$")
 _MERGED_FILE = re.compile(r"Merging formats into [\"'](.+)[\"']")
+
+
+def _parse_progress_line(line: str) -> dict[str, Any] | None:
+    if "[download]" not in line:
+        return None
+    percent = _PROGRESS.search(line)
+    if not percent:
+        return None
+    speed = _PROGRESS_SPEED.search(line)
+    eta = _PROGRESS_ETA.search(line)
+    return {
+        "progress": float(percent.group("percent")),
+        "speed": speed.group("speed") if speed else "",
+        "eta": eta.group("eta") if eta else "",
+    }
 
 
 class DownloadManager:
@@ -161,14 +178,11 @@ class DownloadManager:
                     fields["title"] = title.group(1).strip()
                     if self.repo.playlist_for_job(job_id):
                         self.repo.update_playlist_name(job["url"], title.group(1).strip())
-                match = _PROGRESS.search(clean)
-                if match and "[download]" in clean:
-                    try:
-                        fields["progress"] = float(match.group("percent"))
-                    except ValueError:
-                        pass
-                    fields["speed"] = match.group("speed")
-                    fields["eta"] = match.group("eta")
+                progress = _parse_progress_line(clean)
+                if progress:
+                    fields["progress"] = progress["progress"]
+                    fields["speed"] = progress["speed"]
+                    fields["eta"] = progress["eta"]
                     fields["stage"] = "Downloading"
                 if "Destination:" in clean or "Merger" in clean:
                     fields["stage"] = "Processing"
