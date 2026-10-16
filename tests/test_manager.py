@@ -1,7 +1,8 @@
 import ipaddress
+import threading
 
 from ytpi_app.config import Settings
-from ytpi_app.manager import DownloadManager
+from ytpi_app.manager import DownloadManager, _parse_progress_line
 from ytpi_app.repository import JobRepository
 
 
@@ -9,7 +10,11 @@ def test_download_command_enables_progress_alongside_print_option(tmp_path):
     fake_yt_dlp = tmp_path / "fake-yt-dlp"
     fake_yt_dlp.write_text("""#!/bin/sh
 printf 'ARGS: %s\\n' "$*"
-printf '%s\\n' '[download]   43.0% of   12MiB at  1MiB/s ETA 00:10' '__YTPI_TITLE__A Great Video'
+printf '%s\\n' '[download] 43.0% of 12MiB at 1MiB/s ETA 00:10'
+sleep 0.1
+printf '%s\\n' '[download] 57.5% of 12MiB at unknown ETA unknown'
+sleep 0.2
+printf '%s\\n' '__YTPI_TITLE__A Great Video'
 """)
     fake_yt_dlp.chmod(0o755)
     settings = Settings(
@@ -22,17 +27,42 @@ printf '%s\\n' '[download]   43.0% of   12MiB at  1MiB/s ETA 00:10' '__YTPI_TITL
     repository = JobRepository(settings.db_path)
     manager = DownloadManager(settings, repository)
     job = manager.enqueue("https://youtu.be/example", "", "1080", False, "mp3")
-
-    manager._run(job)
+    worker = threading.Thread(target=manager._run, args=(job,))
+    worker.start()
+    intermediate = None
+    while worker.is_alive():
+        current = repository.get_job(job["id"])
+        if current and current["progress"] == 57.5:
+            intermediate = current
+            break
+    worker.join()
     completed = repository.get_job(job["id"])
 
+    assert intermediate is not None
+    assert intermediate["stage"] == "Downloading"
+    assert "unknown" in intermediate["speed"]
+    assert "unknown" in intermediate["eta"]
     assert "--progress" in completed["output"]
     assert completed["progress"] == 100
-    progress_lines = [line for line in completed["output"].splitlines() if "43.0%" in line]
-    assert progress_lines
-    assert completed["speed"] == "1MiB/s"
-    assert completed["eta"] == "00:10"
     repository.close()
+
+
+def test_progress_parser_accepts_percent_without_speed_or_eta():
+    assert _parse_progress_line("[download] 57.5% of 12MiB") == {
+        "progress": 57.5, "speed": "", "eta": ""
+    }
+
+
+def test_progress_parser_accepts_unknown_speed_and_eta():
+    assert _parse_progress_line("[download] 57.5% at unknown ETA unknown") == {
+        "progress": 57.5, "speed": "unknown", "eta": "unknown"
+    }
+
+
+def test_progress_parser_accepts_completion_line_without_eta():
+    assert _parse_progress_line("[download] 100% of 20MiB in 00:01:20 at 255.24KiB/s") == {
+        "progress": 100, "speed": "255.24KiB/s", "eta": ""
+    }
 
 
 def test_manager_persists_title_and_completes_a_download(tmp_path):
