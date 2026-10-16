@@ -13,7 +13,7 @@ from typing import Any
 from .config import Settings, safe_category
 from .repository import JobRepository, now_iso
 
-_PROGRESS = re.compile(r"(\d+(?:\.\d+)?)%.*?(?:at\s+([^\s]+))?.*?(?:ETA\s+([0-9:]+))?", re.I)
+_PROGRESS = re.compile(r"(?P<percent>\d+(?:\.\d+)?)%.*?\bat\s+(?P<speed>[^\s]+).*?\bETA\s+(?P<eta>[0-9:]+)", re.I)
 _DESTINATION = re.compile(r"Destination:\s+(.+)$")
 _TITLE = re.compile(r"__YTPI_TITLE__(.+)$")
 _MERGED_FILE = re.compile(r"Merging formats into [\"'](.+)[\"']")
@@ -129,7 +129,7 @@ class DownloadManager:
             return
         remote = ["--remote-components", "ejs:github"] if self.settings.enable_remote_components else []
         ffmpeg = ["--ffmpeg-location", self.settings.ffmpeg_path] if self.settings.ffmpeg_path else []
-        command = [self.settings.yt_dlp, "--newline", "--no-colors", *remote, *ffmpeg,
+        command = [self.settings.yt_dlp, "--newline", "--no-colors", "--progress", *remote, *ffmpeg,
                    "--print", "after_move:__YTPI_TITLE__%(title)s", "-P", str(destination)]
         if job["audio_only"]:
             command += ["--extract-audio", "--audio-format", job["audio_format"] or "mp3"]
@@ -164,13 +164,11 @@ class DownloadManager:
                 match = _PROGRESS.search(clean)
                 if match and "[download]" in clean:
                     try:
-                        fields["progress"] = float(match.group(1))
+                        fields["progress"] = float(match.group("percent"))
                     except ValueError:
                         pass
-                    if match.group(2):
-                        fields["speed"] = match.group(2)
-                    if match.group(3):
-                        fields["eta"] = match.group(3)
+                    fields["speed"] = match.group("speed")
+                    fields["eta"] = match.group("eta")
                     fields["stage"] = "Downloading"
                 if "Destination:" in clean or "Merger" in clean:
                     fields["stage"] = "Processing"
