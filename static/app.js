@@ -103,6 +103,14 @@
     const percent = Math.max(0, Math.min(100, Number(job.progress) || 0)); progress.setAttribute('aria-valuenow', String(percent));
     const fill = element('span'); fill.style.width = `${percent}%`; progress.append(fill);
     progressLine.append(progress, element('span', 'progress-label', `${Math.round(percent)}%`)); main.append(progressLine);
+    const progressDetails = [];
+    if (job.status === 'downloading' && job.stage === 'Preparing') progressDetails.push('Getting the download ready…');
+    else if (job.status === 'downloading' && job.stage === 'Processing') progressDetails.push('Finishing the file…');
+    else {
+      if (job.speed && !/unknown/i.test(job.speed)) progressDetails.push(job.speed);
+      if (job.eta && /^[0-9:]+$/.test(job.eta)) progressDetails.push(`About ${job.eta} left`);
+    }
+    if (progressDetails.length) main.append(element('div', 'progress-details', progressDetails.join(' · ')));
     if (job.error) main.append(element('p', 'job-error', job.error));
     const actions = element('div', 'job-actions');
     const details = element('button', 'text-button details-button', 'Details'); details.type = 'button'; details.dataset.id = job.id; details.setAttribute('aria-label', `Details for ${humanTitle(job)}`); actions.append(details);
