@@ -5,6 +5,7 @@ import queue
 import re
 import signal
 import subprocess
+import tempfile
 import threading
 import uuid
 from pathlib import Path
@@ -16,6 +17,7 @@ from .repository import JobRepository, now_iso
 _PROGRESS = re.compile(r"(?P<percent>\d+(?:\.\d+)?)%.*?\bat\s+(?P<speed>[^\s]+).*?\bETA\s+(?P<eta>[0-9:]+)", re.I)
 _DESTINATION = re.compile(r"Destination:\s+(.+)$")
 _TITLE = re.compile(r"__YTPI_TITLE__(.+)$")
+_FILEPATH = re.compile(r"__YTPI_FILEPATH__(.+)$")
 _MERGED_FILE = re.compile(r"Merging formats into [\"'](.+)[\"']")
 
 
@@ -102,6 +104,53 @@ class DownloadManager:
     def _output_tail(self, lines: list[str]) -> str:
         return "\n".join(lines)[-self.settings.max_output_chars:]
 
+    def _embed_thumbnail(self, media_path: Path) -> str | None:
+        media_path = media_path.resolve()
+        if not media_path.is_relative_to(self.settings.downloads_dir.resolve()) or not media_path.is_file():
+            return None
+        thumbnail_path = media_path.with_name(f"{media_path.stem}-thumb.jpg")
+        if not thumbnail_path.is_file():
+            return None
+
+        extension = media_path.suffix.lower()
+        if extension not in {".mp3", ".mp4", ".m4a", ".m4v", ".mov", ".mkv", ".mka"}:
+            return None
+
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=media_path.parent, suffix=extension, delete=False) as temporary:
+                temporary_path = Path(temporary.name)
+            temporary_path.unlink()
+            command = [self.settings.ffmpeg_path or "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                       "-i", str(media_path)]
+            if extension not in {".mkv", ".mka"}:
+                command += ["-i", str(thumbnail_path)]
+            command += ["-map", "0"]
+            if extension not in {".mkv", ".mka"}:
+                command += ["-map", "1:v:0"]
+            command += ["-map_metadata", "0", "-map_chapters", "0", "-c", "copy"]
+            if extension in {".mp4", ".m4a", ".m4v", ".mov"}:
+                video_index = "0" if extension == ".m4a" else "1"
+                command += [f"-disposition:v:{video_index}", "attached_pic"]
+            elif extension in {".mkv", ".mka"}:
+                command += ["-attach", str(thumbnail_path), "-metadata:s:t", "mimetype=image/jpeg",
+                            "-metadata:s:t", "filename=cover.jpg"]
+            else:
+                command += ["-id3v2_version", "3", "-metadata:s:v", "title=Album cover",
+                            "-metadata:s:v", "comment=Cover (front)"]
+            command.append(str(temporary_path))
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    text=True, timeout=self.settings.timeout_seconds, check=False)
+            if result.returncode != 0 or not temporary_path.is_file():
+                return f"Thumbnail sidecar saved; embedding failed for {media_path.name}."
+            os.replace(temporary_path, media_path)
+            return f"Embedded thumbnail in {media_path.name}; kept {thumbnail_path.name}."
+        except (OSError, subprocess.TimeoutExpired):
+            return f"Thumbnail sidecar saved; embedding failed for {media_path.name}."
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+
     def _worker(self) -> None:
         while True:
             job_id = self._queue.get()
@@ -129,8 +178,13 @@ class DownloadManager:
             return
         remote = ["--remote-components", "ejs:github"] if self.settings.enable_remote_components else []
         ffmpeg = ["--ffmpeg-location", self.settings.ffmpeg_path] if self.settings.ffmpeg_path else []
-        command = [self.settings.yt_dlp, "--newline", "--no-colors", "--progress", *remote, *ffmpeg,
-                   "--print", "after_move:__YTPI_TITLE__%(title)s", "-P", str(destination)]
+        thumbnail_template = str(destination / ("%(playlist)s/%(title)s-thumb.%(ext)s" if "list=" in job["url"]
+                                                  else "%(title)s-thumb.%(ext)s"))
+        command = [self.settings.yt_dlp, "--newline", "--no-colors", "--progress", "--write-thumbnail",
+                   "--convert-thumbnails", "jpg", *remote, *ffmpeg,
+                   "--output", f"thumbnail:{thumbnail_template}",
+                   "--print", "after_move:__YTPI_TITLE__%(title)s",
+                   "--print", "after_move:__YTPI_FILEPATH__%(filepath)s", "-P", str(destination)]
         if job["audio_only"]:
             command += ["--extract-audio", "--audio-format", job["audio_format"] or "mp3"]
         else:
@@ -161,6 +215,9 @@ class DownloadManager:
                     fields["title"] = title.group(1).strip()
                     if self.repo.playlist_for_job(job_id):
                         self.repo.update_playlist_name(job["url"], title.group(1).strip())
+                filepath = _FILEPATH.search(clean)
+                if filepath:
+                    fields["filename"] = filepath.group(1).strip()
                 match = _PROGRESS.search(clean)
                 if match and "[download]" in clean:
                     try:
@@ -192,6 +249,13 @@ class DownloadManager:
             if latest and latest["status"] == "cancelled":
                 return
             if returncode == 0:
+                thumbnail_message = None
+                latest = self.repo.get_job(job_id)
+                filename = latest.get("filename", "") if latest else ""
+                if filename:
+                    thumbnail_message = self._embed_thumbnail(Path(filename))
+                if thumbnail_message:
+                    output.append(thumbnail_message)
                 self.repo.update_job(job_id, status="finished", stage="Finished", progress=100,
                                      output=self._output_tail(output), finished_at=now_iso())
                 playlist = self.repo.playlist_for_job(job_id)

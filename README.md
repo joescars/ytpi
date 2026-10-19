@@ -5,7 +5,7 @@ YTPI is a private, responsive YouTube download manager for your home network. Th
 ## Current functionality
 
 - Queue one or several HTTP(S) video or playlist links.
-- Download video in best available, 4K, 2K, 1080p, 720p, or 480p quality, or extract MP3/WAV audio.
+- Download video in best available, 4K, 2K, 1080p, 720p, or 480p quality, or extract MP3/WAV audio; save each YouTube thumbnail beside its media as `-thumb.jpg`, and embed it where the media container supports cover art.
 - Monitor download progress, stage, speed, errors, and technical output; search and filter history; load more results.
 - Cancel queued or active work and retry failed/cancelled jobs.
 - Persist job history and saved playlist settings in SQLite; recover interrupted downloads after restart.
