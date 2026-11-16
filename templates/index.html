@@ -51,10 +51,12 @@
             <div class="field"><label for="category">Save to</label><select id="category" name="category"><option value="">Main library</option>{% for category in categories %}<option value="{{ category }}">{{ category }}</option>{% endfor %}<option value="__custom__">＋ New folder…</option></select></div>
             <div class="field" id="quality-field"><label for="quality">Video quality</label><select id="quality" name="quality"><option value="max">Best available</option><option value="2160">4K · 2160p</option><option value="1440">2K · 1440p</option><option value="1080">Full HD · 1080p</option><option value="720">HD · 720p</option><option value="480">480p</option></select></div>
             <label class="switch-row" for="audio-only"><input id="audio-only" type="checkbox" name="audio_only"><span class="switch-track" aria-hidden="true"><span></span></span><span>Audio only</span></label>
+            <label class="switch-row" for="whole-playlist"><input id="whole-playlist" type="checkbox" name="whole_playlist"><span class="switch-track" aria-hidden="true"><span></span></span><span>Whole playlist</span></label>
             <div class="field audio-field" id="audio-field" hidden><label for="audio-format">Audio format</label><select id="audio-format" name="audio_format"><option value="mp3">MP3</option><option value="wav">WAV</option></select></div>
             <div class="field custom-field" id="custom-field" hidden><label for="custom-category">Folder name</label><input id="custom-category" name="custom_category" placeholder="e.g. Weekend finds" maxlength="80"></div>
           </div>
           <p class="audio-hint" id="audio-hint" hidden>Audio files go into the <strong>audio-only</strong> folder. Video quality and save location don’t apply.</p>
+          <p class="audio-hint" id="playlist-hint">A link to one video inside a playlist (<code>watch?v=…&amp;list=…</code>) downloads <strong>just that video</strong>. Turn on <strong>Whole playlist</strong> to download every video in it. Playlist-only links always download the whole playlist.</p>
           <div class="form-footer"><span class="form-hint">Your downloads stay on this device.</span><button class="button button-filled" id="queue-button" type="submit"><span aria-hidden="true">↓</span> Queue download</button></div>
         </form>
       </section>

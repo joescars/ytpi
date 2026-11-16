@@ -205,7 +205,7 @@
     const custom = $('#category').value === '__custom__';
     const urls = $('#urls').value.split(/[\n,]+/).map((url) => url.trim()).filter(Boolean);
     try {
-      const data = await api('/api/jobs', { method: 'POST', body: JSON.stringify({ urls, category: custom ? '' : $('#category').value, custom_category: custom ? $('#custom-category').value : '', quality: $('#quality').value, audio_only: audioToggle.checked, audio_format: $('#audio-format').value }) });
+      const data = await api('/api/jobs', { method: 'POST', body: JSON.stringify({ urls, category: custom ? '' : $('#category').value, custom_category: custom ? $('#custom-category').value : '', quality: $('#quality').value, audio_only: audioToggle.checked, audio_format: $('#audio-format').value, playlist_mode: $('#whole-playlist').checked ? 'playlist' : 'auto' }) });
       queueReceipt(data.total);
       $('#urls').value = '';
       if (custom) { $('#category').value = ''; $('#custom-field').hidden = true; }

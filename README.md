@@ -4,7 +4,7 @@ YTPI is a private, responsive YouTube download manager for your home network. Th
 
 ## Current functionality
 
-- Queue one or several HTTP(S) video or playlist links.
+- Queue one or several HTTP(S) video or playlist links. A video link that also carries `list=` downloads only that video unless you ask for the whole playlist (see [Single video vs. playlist](#single-video-vs-playlist)).
 - Download video in best available, 4K, 2K, 1080p, 720p, or 480p quality, or extract MP3/WAV audio; save each YouTube thumbnail beside its media as `-thumb.jpg`, and embed it where the media container supports cover art.
 - Monitor download progress, stage, speed, errors, and technical output; search and filter history; load more results.
 - Cancel queued or active work and retry failed/cancelled jobs.
@@ -89,11 +89,23 @@ Conversion failed! / Error number -22
 
 This comes from an old ffmpeg that treats Opus-in-MP4/WebM as experimental. The Docker image is built on Debian 13 with ffmpeg 7.x and is not affected. If you run outside that image or point `YTPI_FFMPEG_PATH` at an older ffmpeg, upgrade it, or set `YTPI_FFMPEG_STRICT_EXPERIMENTAL=1` to add `-strict -2` to yt-dlp's ffmpeg post-processing.
 
+## Single video vs. playlist
+
+YouTube links such as `https://www.youtube.com/watch?v=<id>&list=<playlist>` name both a video and a playlist, and yt-dlp's default is to download the whole playlist. YTPI parses the URL (host, path, and query, not a substring check) and defaults to what you most likely meant:
+
+| Link | Default behavior | yt-dlp flag |
+| --- | --- | --- |
+| `watch?v=<id>&list=<playlist>` (also `youtu.be/<id>?list=...`) | Single video, saved without a playlist folder | `--no-playlist` |
+| `playlist?list=<playlist>` | Whole playlist, saved in a playlist folder and tracked under Saved playlists | `--yes-playlist` |
+| `watch?v=<id>` or any link without `list=` | Single video | none |
+
+To download the whole playlist from a `watch?v=...&list=...` link, switch on **Whole playlist** in the form, or send `"playlist_mode": "playlist"` to `POST /api/jobs`. YTPI then queues the canonical `playlist?list=<playlist>` URL, so retries and saved-playlist syncs keep the same intent. The form shows a hint about this before you queue.
+
 ## API overview
 
 All routes are subject to the CIDR allowlist.
 
-- `POST /api/jobs` — queue one URL or an array of URLs; JSON body supports `url`/`urls`, `quality`, `category`/`custom_category`, `audio_only`, and `audio_format`.
+- `POST /api/jobs` — queue one URL or an array of URLs; JSON body supports `url`/`urls`, `quality`, `category`/`custom_category`, `audio_only`, `audio_format`, and `playlist_mode` (`auto` default, or `playlist`).
 - `GET /api/jobs?limit=40&offset=0&status=&search=` — paginated history plus full-history status counts.
 - `GET /api/jobs/<id>` — job details and technical output.
 - `POST /api/jobs/<id>/cancel` and `/retry` — stop or requeue an eligible job.

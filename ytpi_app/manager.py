@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .config import Settings, playlist_archive_key, safe_category
+from .config import Settings, effective_playlist_mode, playlist_archive_key, safe_category, youtube_ids
 from .repository import JobRepository, now_iso
 
 _PROGRESS = re.compile(r"(?P<percent>\d+(?:\.\d+)?)%.*?\bat\s+(?P<speed>[^\s]+).*?\bETA\s+(?P<eta>[0-9:]+)", re.I)
@@ -184,11 +184,15 @@ class DownloadManager:
             return
         remote = ["--remote-components", "ejs:github"] if self.settings.enable_remote_components else []
         ffmpeg = ["--ffmpeg-location", self.settings.ffmpeg_path] if self.settings.ffmpeg_path else []
+        playlist_mode = effective_playlist_mode(job["url"])
+        has_list = bool(youtube_ids(job["url"])[1])
+        playlist_flag = ["--yes-playlist" if playlist_mode == "playlist" else "--no-playlist"] if has_list else []
+        in_playlist_folder = has_list and playlist_mode == "playlist"
         # The media and thumbnail templates must bound the title identically: _embed_thumbnail
         # derives "<media stem>-thumb.jpg" and would not find a differently truncated sidecar.
         limit = self.settings.max_filename_bytes
         title_field = f"%(title).{limit}B"
-        prefix = f"%(playlist).{limit}B/" if "list=" in job["url"] else ""
+        prefix = f"%(playlist).{limit}B/" if in_playlist_folder else ""
         media_template = f"{prefix}{title_field}.%(ext)s"
         thumbnail_template = str(destination / f"{prefix}{title_field}-thumb.%(ext)s")
         command = [self.settings.yt_dlp, "--newline", "--no-colors", "--progress", "--write-thumbnail",
@@ -206,12 +210,14 @@ class DownloadManager:
         if self.settings.ffmpeg_strict_experimental:
             # Older ffmpeg refuses Opus in MP4/WebM without this ("Could not write header", error -22).
             command += ["--postprocessor-args", "ffmpeg:-strict -2"]
-        archive_key = playlist_archive_key(job["url"])
-        if archive_key:
-            archive_path = self._archive_path(archive_key)
-            archive_path.parent.mkdir(parents=True, exist_ok=True)
-            command += ["--download-archive", str(archive_path)]
-        command += ["-o", media_template, job["url"]]
+        archive_key = ""
+        if in_playlist_folder:
+            archive_key = playlist_archive_key(job["url"])
+            if archive_key:
+                archive_path = self._archive_path(archive_key)
+                archive_path.parent.mkdir(parents=True, exist_ok=True)
+                command += ["--download-archive", str(archive_path)]
+        command += [*playlist_flag, "-o", media_template, job["url"]]
         attempt_count = int(job.get("attempt_count") or 0) + 1
         self.repo.update_job(job_id, status="downloading", stage="Preparing", error="", started_at=now_iso(), attempt_count=attempt_count)
         playlist = self.repo.playlist_for_job(job_id)
