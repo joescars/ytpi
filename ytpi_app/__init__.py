@@ -9,7 +9,8 @@ from urllib.parse import parse_qs, urlparse
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
 
-from .config import AUDIO_FORMATS, QUALITIES, Settings, client_allowed, load_settings, safe_category, valid_media_url
+from .config import (AUDIO_FORMATS, PLAYLIST_MODES, QUALITIES, YOUTUBE_HOSTS, Settings, client_allowed, load_settings,
+                     resolve_playlist_request, safe_category, valid_media_url)
 from .manager import DownloadManager
 from .repository import JobRepository
 
@@ -113,6 +114,9 @@ def create_app(settings: Settings | None = None) -> Flask:
         audio_format = str(data.get("audio_format", "mp3")).lower()
         if audio_format not in AUDIO_FORMATS:
             return jsonify(error="Choose MP3 or WAV audio."), 400
+        playlist_mode = str(data.get("playlist_mode") or "auto").lower()
+        if playlist_mode not in PLAYLIST_MODES:
+            return jsonify(error="Choose auto or playlist for playlist_mode."), 400
         try:
             raw_category = str(data.get("custom_category") or data.get("category") or "")
             if raw_category == "__custom__":
@@ -122,6 +126,7 @@ def create_app(settings: Settings | None = None) -> Flask:
                 raise ValueError("Enter a name for the new folder.")
             queue_items = []
             for url in urls:
+                url = resolve_playlist_request(url, playlist_mode)
                 playlist_id = _playlist_identity(url)
                 playlist = repo.upsert_playlist(url, playlist_id, category, quality, audio_only, audio_format) if playlist_id else None
                 queue_items.append({"url": url, "category": category, "quality": quality,
@@ -208,7 +213,7 @@ def create_app(settings: Settings | None = None) -> Flask:
 
 def _playlist_identity(url: str) -> str:
     parsed = urlparse(url)
-    if (parsed.hostname or "").lower() not in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}:
+    if (parsed.hostname or "").lower() not in YOUTUBE_HOSTS:
         return ""
     values = parse_qs(parsed.query)
     playlist_id = values.get("list", [""])[0].strip()

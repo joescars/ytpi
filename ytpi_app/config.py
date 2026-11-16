@@ -6,12 +6,14 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 
 DEFAULT_CIDRS = "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128"
 QUALITIES = {"max", "2160", "1440", "1080", "720", "480"}
 AUDIO_FORMATS = {"mp3", "wav"}
+PLAYLIST_MODES = {"auto", "playlist"}
+YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}
 
 
 @dataclass(frozen=True)
@@ -126,3 +128,36 @@ def valid_media_url(value: str, block_private: bool = False) -> bool:
         return True
     except ValueError:
         return False
+
+
+def youtube_ids(url: str) -> tuple[str, str]:
+    """Return (video_id, playlist_id) parsed from a URL's host, path, and query; either may be empty."""
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    values = parse_qs(parsed.query)
+    playlist_id = values.get("list", [""])[0].strip()
+    path = parsed.path.rstrip("/")
+    if host in YOUTUBE_HOSTS:
+        return (values.get("v", [""])[0].strip() if path == "/watch" else ""), playlist_id
+    if host == "youtu.be":
+        return path.lstrip("/"), playlist_id
+    return "", playlist_id
+
+
+def effective_playlist_mode(url: str) -> str:
+    """Return "single" or "playlist". A link that names a video (watch?v=...&list=...) is one video; a bare list= link is a playlist."""
+    video_id, playlist_id = youtube_ids(url)
+    return "single" if video_id or not playlist_id else "playlist"
+
+
+def resolve_playlist_request(url: str, requested: str = "auto") -> str:
+    """Apply the per-request playlist choice by rewriting a video+list link to its canonical playlist URL.
+
+    With "auto" the URL is untouched (video+list stays a single video); with "playlist" a
+    watch?v=...&list=... link becomes https://www.youtube.com/playlist?list=... so the intent is
+    carried by the URL itself (retries, restarts, and saved playlists all agree).
+    """
+    video_id, playlist_id = youtube_ids(url)
+    if requested == "playlist" and video_id and playlist_id:
+        return f"https://www.youtube.com/playlist?list={quote(playlist_id, safe='')}"
+    return url
