@@ -1,4 +1,6 @@
 .env
+cookies*.txt
+*.cookies
 .env.*
 !.env.example
 .venv/

@@ -39,6 +39,15 @@ class Settings:
     max_filename_bytes: int = 200
     ffmpeg_strict_experimental: bool = False
     archive_dir: Path | None = None
+    # Optional yt-dlp anti-block settings; all off by default.
+    cookies_file: str = ""
+    user_agent: str = ""
+    source_address: str = ""
+    min_sleep_interval: float = 0
+    sleep_requests: float = 0
+    # Jittered backoff before retrying 429/402/403 failures (seconds; 0 disables).
+    rate_limit_backoff_seconds: int = 5
+    rate_limit_backoff_cap_seconds: int = 60
 
 
 def _integer(name: str, default: int, minimum: int) -> int:
@@ -58,6 +67,14 @@ def playlist_archive_key(url: str) -> str:
     if key != playlist_id:
         key = f"{key}-{hashlib.sha1(playlist_id.encode()).hexdigest()[:10]}"
     return key
+
+
+def _number(name: str, default: float, minimum: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+    return max(value, minimum) if value == value else default
 
 
 def load_settings() -> Settings:
@@ -89,6 +106,13 @@ def load_settings() -> Settings:
         max_filename_bytes=_integer("YTPI_MAX_FILENAME_BYTES", 200, 20),
         ffmpeg_strict_experimental=os.getenv("YTPI_FFMPEG_STRICT_EXPERIMENTAL", "0").lower() in {"1", "true", "yes", "on"},
         archive_dir=Path(os.getenv("YTPI_ARCHIVE_DIR", str(db_path.parent / "archives"))).resolve(),
+        cookies_file=os.getenv("YTPI_COOKIES_FILE", "").strip(),
+        user_agent=os.getenv("YTPI_USER_AGENT", "").strip(),
+        source_address=os.getenv("YTPI_SOURCE_ADDRESS", "").strip(),
+        min_sleep_interval=_number("YTPI_MIN_SLEEP_INTERVAL", 0, 0),
+        sleep_requests=_number("YTPI_SLEEP_REQUESTS", 0, 0),
+        rate_limit_backoff_seconds=_integer("YTPI_RATE_LIMIT_BACKOFF_SECONDS", 5, 0),
+        rate_limit_backoff_cap_seconds=_integer("YTPI_RATE_LIMIT_BACKOFF_CAP_SECONDS", 60, 0),
     )
 
 
