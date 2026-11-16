@@ -95,7 +95,7 @@ printf '%s\\n' '[download]   43.0% of   12MiB at  1MiB/s ETA 00:10' '__YTPI_TITL
     assert "--progress" in completed["output"]
     assert "--write-thumbnail" in completed["output"]
     assert "--convert-thumbnails jpg" in completed["output"]
-    assert f"thumbnail:{tmp_path / 'downloads'}/%(title)s-thumb.%(ext)s" in completed["output"]
+    assert f"thumbnail:{tmp_path / 'downloads'}/%(title).200B-thumb.%(ext)s" in completed["output"]
     assert f"--print after_move:__YTPI_FILEPATH__%(filepath)s" in completed["output"]
     assert completed["filename"].endswith("A Great Video.mp3" if audio_only else "A Great Video.mp4")
     assert "43.0%" in completed["output"]

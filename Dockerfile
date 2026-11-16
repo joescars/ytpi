@@ -1,4 +1,5 @@
-FROM python:3.12-slim AS runtime
+# Debian 13 (trixie) ships ffmpeg 7.x; older distro ffmpeg cannot mux Opus into MP4 (see README troubleshooting).
+FROM python:3.12-slim-trixie AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -8,6 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     YTPI_DOWNLOADS_DIR=/app/downloads
 
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg gosu ca-certificates \
+    && ffmpeg -version | head -1 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=denoland/deno:bin-2.9.4 /deno /usr/local/bin/deno
 WORKDIR /app

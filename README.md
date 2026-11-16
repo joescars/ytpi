@@ -60,6 +60,8 @@ The v1 application source remains in Git history and can be restored by checking
 | `YTPI_TRUST_PROXY` | `0` | Trust the first `X-Forwarded-For` address. Enable only behind a trusted proxy. |
 | `YTPI_BLOCK_PRIVATE_URLS` | `0` | Reject literal private/reserved IP source URLs; does not resolve hostnames. |
 | `YTPI_WRITE_AUTO_SUBS` | `0` | Fetch/convert English auto-captions. Optional because YouTube subtitle requests can be rate-limited independently of video downloads. |
+| `YTPI_MAX_FILENAME_BYTES` | `200` | Byte cap applied to the `%(title)` and `%(playlist)` fields in output names (yt-dlp `%(title).200B`), keeping files under the 255-byte filesystem limit. Media and thumbnail names use the same cap. |
+| `YTPI_FFMPEG_STRICT_EXPERIMENTAL` | `0` | Pass `--postprocessor-args "ffmpeg:-strict -2"` to yt-dlp. Only needed with an old external ffmpeg (see Troubleshooting). |
 | `YTPI_MAX_WORKERS` | `1` | Concurrent downloader worker count; `0` disables workers. |
 | `YTPI_MAX_QUEUE_SIZE` | `200` | Maximum active jobs. |
 | `YTPI_JOB_TIMEOUT_SECONDS` | `3600` | Per-job timeout in seconds. |
@@ -70,6 +72,21 @@ The v1 application source remains in Git history and can be restored by checking
 | `YTPI_HOST_DOWNLOADS_DIR` | `/mnt/usb0/samsung/media/YouTube` | Host media directory mounted into the container. |
 
 The app is intended for a trusted LAN. CIDR access control alone is not authentication; use a properly configured authenticated reverse proxy before any access beyond that network.
+
+## Troubleshooting
+
+**`File name too long` (`[Errno 36]`).** Long video/playlist titles exceeded the filesystem's 255-byte name limit. YTPI bounds the title and playlist fields to `YTPI_MAX_FILENAME_BYTES` (default 200) bytes; lower it if you still see the error (e.g. on eCryptfs, ~143).
+
+**Opus audio fails to merge/embed.** Job output looks like:
+
+```
+[opus @ ...] Opus in MP4 support is experimental ... / incorrect codec parameters
+Could not write header for output file #0 (incorrect codec parameters ?): Invalid argument
+Error initializing output stream 0:1 --
+Conversion failed! / Error number -22
+```
+
+This comes from an old ffmpeg that treats Opus-in-MP4/WebM as experimental. The Docker image is built on Debian 13 with ffmpeg 7.x and is not affected. If you run outside that image or point `YTPI_FFMPEG_PATH` at an older ffmpeg, upgrade it, or set `YTPI_FFMPEG_STRICT_EXPERIMENTAL=1` to add `-strict -2` to yt-dlp's ffmpeg post-processing.
 
 ## API overview
 
