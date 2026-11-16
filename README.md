@@ -67,6 +67,11 @@ The v1 application source remains in Git history and can be restored by checking
 | `YTPI_MAX_QUEUE_SIZE` | `200` | Maximum active jobs. |
 | `YTPI_JOB_TIMEOUT_SECONDS` | `3600` | Per-job timeout in seconds. |
 | `YTPI_MAX_RETRIES` | `1` | Automatic retries after yt-dlp failure. |
+| `YTPI_RATE_LIMIT_BACKOFF_SECONDS` / `YTPI_RATE_LIMIT_BACKOFF_CAP_SECONDS` | `5` / `60` | Base and maximum delay (seconds, jittered, doubling per attempt) before retrying a job that failed with HTTP 429/402/403. `0` retries immediately. |
+| `YTPI_COOKIES_FILE` | empty (off) | Path to a Netscape-format cookies file passed to yt-dlp as `--cookies`. The path is used as-is; contents are never logged. |
+| `YTPI_USER_AGENT` | empty (off) | Full browser User-Agent passed as `--user-agent`; must match the browser the cookies came from. |
+| `YTPI_SOURCE_ADDRESS` | empty (off) | Local IP passed as `--source-address`, to pin outgoing requests to one external IP on multi-IP hosts. |
+| `YTPI_MIN_SLEEP_INTERVAL` / `YTPI_SLEEP_REQUESTS` | `0` / `0` | Seconds passed as `--min-sleep-interval` (between downloads) and `--sleep-requests` (between requests). `0` omits the flag. |
 | `YTPI_ENABLE_REMOTE_COMPONENTS` | `1` | Allow yt-dlp's `ejs:github` remote component (requires network and Deno). |
 | `YTPI_ENABLE_SHARE_GET` | `1` | Enable the legacy `/share` shortcut route. |
 | `YTPI_SHARE_TOKEN` | empty | Required to use `/share`; configure a strong token or disable the route. |
@@ -100,6 +105,23 @@ YouTube links such as `https://www.youtube.com/watch?v=<id>&list=<playlist>` nam
 | `watch?v=<id>` or any link without `list=` | Single video | none |
 
 To download the whole playlist from a `watch?v=...&list=...` link, switch on **Whole playlist** in the form, or send `"playlist_mode": "playlist"` to `POST /api/jobs`. YTPI then queues the canonical `playlist?list=<playlist>` URL, so retries and saved-playlist syncs keep the same intent. The form shows a hint about this before you queue.
+
+## Rate limits and blocks (HTTP 429 / 402 / 403)
+
+When yt-dlp output contains HTTP 429, 402 or 403, YTPI shows an actionable error (e.g. "YouTube is rate-limiting this IP address … retry later or configure cookies") and waits a jittered, capped backoff before the automatic retry instead of repeating the identical request immediately. Other failures still retry immediately. Cancelling a job during backoff works as usual.
+
+- **429 / 402** are IP-level soft blocks. Clearing them generally needs a solved CAPTCHA, matching cookies, the same source IP, and a browser User-Agent.
+- **403 (Cloudflare)** is anti-bot fingerprinting. Cookies must have been refreshed within about 30 minutes, from the same IP, with the browser's full current User-Agent.
+
+Runbook:
+
+1. From a browser on the **same network/IP as YTPI**, open YouTube and solve any CAPTCHA.
+2. Export that session's cookies in Netscape format with a cookies-exporter extension and save them where the container can read them, e.g. `./data/cookies.txt` (`data/` is git-ignored; `cookies*.txt` is too). Treat the file as a password: never commit it or paste it into issues/logs.
+3. Set `YTPI_COOKIES_FILE=/app/data/cookies.txt` and `YTPI_USER_AGENT` to the browser's full User-Agent string (from `navigator.userAgent`). If the host has several external IPs, set `YTPI_SOURCE_ADDRESS` to the one the browser used.
+4. Optionally slow down with `YTPI_SLEEP_REQUESTS` / `YTPI_MIN_SLEEP_INTERVAL` and keep `YTPI_MAX_WORKERS=1`.
+5. Restart (`docker compose up -d`) and retry the job. Re-export cookies if 403s return; they expire.
+
+All of these settings are off by default. Only the cookie file's path (never its contents) can appear in job output.
 
 ## API overview
 

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import os
 import queue
+import random
 import re
 import signal
 import subprocess
 import tempfile
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,24 @@ _FILEPATH = re.compile(r"__YTPI_FILEPATH__(.+)$")
 _ARCHIVED = re.compile(r"has already been recorded in the archive")
 _PLAYLIST_ITEMS = re.compile(r"Playlist .*: Downloading (\d+) items?\b")
 _MERGED_FILE = re.compile(r"Merging formats into [\"'](.+)[\"']")
+_RATE_LIMIT = re.compile(r"HTTP Error (429|402|403)\b|\b(429|402) Client Error|Too Many Requests", re.I)
+_RATE_LIMIT_MESSAGES = {
+    "429": "YouTube is rate-limiting this IP address (HTTP 429). Retry later, or configure YTPI_COOKIES_FILE "
+           "(plus YTPI_USER_AGENT and YTPI_SOURCE_ADDRESS) from a browser session on the same IP.",
+    "402": "YouTube is blocking this IP address (HTTP 402). Solve the CAPTCHA in a browser from the same IP, then "
+           "configure YTPI_COOKIES_FILE and YTPI_USER_AGENT, or retry later.",
+    "403": "Access was forbidden (HTTP 403), often Cloudflare/anti-bot blocking. Refresh cookies from the same IP "
+           "within 30 minutes and set YTPI_COOKIES_FILE and the browser's full YTPI_USER_AGENT, or retry later.",
+}
+
+
+def detect_rate_limit(lines: list[str]) -> str | None:
+    """Return the blocking HTTP status (``"429"``, ``"402"`` or ``"403"``) found in yt-dlp output, if any."""
+    for line in reversed(lines):
+        match = _RATE_LIMIT.search(line)
+        if match:
+            return match.group(1) or match.group(2) or "429"
+    return None
 
 
 class DownloadManager:
@@ -153,6 +173,26 @@ class DownloadManager:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
 
+    def _rate_limit_delay(self, attempt: int) -> float:
+        base = self.settings.rate_limit_backoff_seconds
+        cap = self.settings.rate_limit_backoff_cap_seconds
+        if base <= 0 or cap <= 0:
+            return 0
+        delay = min(cap, base * 2 ** max(attempt - 1, 0))
+        return min(cap, delay * random.uniform(0.75, 1.25))
+
+    def _backoff(self, job_id: str, seconds: float) -> bool:
+        """Sleep in short slices; return False if the job was cancelled meanwhile."""
+        remaining = seconds
+        while remaining > 0:
+            step = min(1.0, remaining)
+            time.sleep(step)
+            remaining -= step
+            latest = self.repo.get_job(job_id)
+            if not latest or latest["status"] != "queued":
+                return False
+        return True
+
     def _worker(self) -> None:
         while True:
             job_id = self._queue.get()
@@ -210,6 +250,16 @@ class DownloadManager:
         if self.settings.ffmpeg_strict_experimental:
             # Older ffmpeg refuses Opus in MP4/WebM without this ("Could not write header", error -22).
             command += ["--postprocessor-args", "ffmpeg:-strict -2"]
+        if self.settings.cookies_file:
+            command += ["--cookies", self.settings.cookies_file]
+        if self.settings.user_agent:
+            command += ["--user-agent", self.settings.user_agent]
+        if self.settings.source_address:
+            command += ["--source-address", self.settings.source_address]
+        if self.settings.min_sleep_interval > 0:
+            command += ["--min-sleep-interval", f"{self.settings.min_sleep_interval:g}"]
+        if self.settings.sleep_requests > 0:
+            command += ["--sleep-requests", f"{self.settings.sleep_requests:g}"]
         archive_key = ""
         if in_playlist_folder:
             archive_key = playlist_archive_key(job["url"])
@@ -300,15 +350,26 @@ class DownloadManager:
                 if playlist:
                     self.repo.set_playlist_sync(playlist["id"], "successful", job_id, success=True)
             elif attempt_count <= self.settings.max_retries:
-                message = f"yt-dlp exited with code {returncode}. Retrying ({attempt_count}/{self.settings.max_retries})…"
-                self.repo.update_job(job_id, status="queued", stage="Retry scheduled", error=message,
-                                     output=self._output_tail(output), finished_at=None)
+                blocked = detect_rate_limit(output)
+                delay = self._rate_limit_delay(attempt_count) if blocked else 0
+                if blocked:
+                    message = (f"{_RATE_LIMIT_MESSAGES[blocked]} Backing off {delay:.0f}s before retry "
+                               f"({attempt_count}/{self.settings.max_retries})…")
+                else:
+                    message = f"yt-dlp exited with code {returncode}. Retrying ({attempt_count}/{self.settings.max_retries})…"
+                self.repo.update_job(job_id, status="queued", stage="Backing off" if blocked else "Retry scheduled",
+                                     error=message, output=self._output_tail(output), finished_at=None)
                 playlist = self.repo.playlist_for_job(job_id)
                 if playlist:
                     self.repo.set_playlist_sync(playlist["id"], "requested", job_id)
+                if blocked and not self._backoff(job_id, delay):
+                    return
                 self._queue.put(job_id)
             else:
-                self.repo.update_job(job_id, status="error", stage="Failed", error="\n".join(output[-8:]) or f"yt-dlp exited with {returncode}",
+                blocked = detect_rate_limit(output)
+                tail = "\n".join(output[-8:]) or f"yt-dlp exited with {returncode}"
+                error = f"{_RATE_LIMIT_MESSAGES[blocked]}\n{tail}" if blocked else tail
+                self.repo.update_job(job_id, status="error", stage="Rate limited" if blocked else "Failed", error=error,
                                      output=self._output_tail(output), finished_at=now_iso())
                 playlist = self.repo.playlist_for_job(job_id)
                 if playlist:
