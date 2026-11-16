@@ -11,13 +11,15 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .config import Settings, safe_category
+from .config import Settings, playlist_archive_key, safe_category
 from .repository import JobRepository, now_iso
 
 _PROGRESS = re.compile(r"(?P<percent>\d+(?:\.\d+)?)%.*?\bat\s+(?P<speed>[^\s]+).*?\bETA\s+(?P<eta>[0-9:]+)", re.I)
 _DESTINATION = re.compile(r"Destination:\s+(.+)$")
 _TITLE = re.compile(r"__YTPI_TITLE__(.+)$")
 _FILEPATH = re.compile(r"__YTPI_FILEPATH__(.+)$")
+_ARCHIVED = re.compile(r"has already been recorded in the archive")
+_PLAYLIST_ITEMS = re.compile(r"Playlist .*: Downloading (\d+) items?\b")
 _MERGED_FILE = re.compile(r"Merging formats into [\"'](.+)[\"']")
 
 
@@ -168,6 +170,10 @@ class DownloadManager:
             finally:
                 self._queue.task_done()
 
+    def _archive_path(self, key: str) -> Path:
+        archive_dir = self.settings.archive_dir or self.settings.db_path.parent / "archives"
+        return archive_dir / f"{key}.txt"
+
     def _run(self, job: dict[str, Any]) -> None:
         job_id = job["id"]
         category = safe_category(job["category"]) if job["category"] else ""
@@ -200,6 +206,11 @@ class DownloadManager:
         if self.settings.ffmpeg_strict_experimental:
             # Older ffmpeg refuses Opus in MP4/WebM without this ("Could not write header", error -22).
             command += ["--postprocessor-args", "ffmpeg:-strict -2"]
+        archive_key = playlist_archive_key(job["url"])
+        if archive_key:
+            archive_path = self._archive_path(archive_key)
+            archive_path.parent.mkdir(parents=True, exist_ok=True)
+            command += ["--download-archive", str(archive_path)]
         command += ["-o", media_template, job["url"]]
         attempt_count = int(job.get("attempt_count") or 0) + 1
         self.repo.update_job(job_id, status="downloading", stage="Preparing", error="", started_at=now_iso(), attempt_count=attempt_count)
@@ -207,6 +218,7 @@ class DownloadManager:
         if playlist:
             self.repo.set_playlist_sync(playlist["id"], "syncing", job_id)
         output: list[str] = []
+        stats = {"discovered": 0, "downloaded": 0, "existing": 0, "failed": 0}
         process: subprocess.Popen[str] | None = None
         try:
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -226,6 +238,14 @@ class DownloadManager:
                 filepath = _FILEPATH.search(clean)
                 if filepath:
                     fields["filename"] = filepath.group(1).strip()
+                    stats["downloaded"] += 1
+                if _ARCHIVED.search(clean):
+                    stats["existing"] += 1
+                if clean.startswith("ERROR:"):
+                    stats["failed"] += 1
+                items = _PLAYLIST_ITEMS.search(clean)
+                if items:
+                    stats["discovered"] = int(items.group(1))
                 match = _PROGRESS.search(clean)
                 if match and "[download]" in clean:
                     try:
@@ -256,6 +276,10 @@ class DownloadManager:
             latest = self.repo.get_job(job_id)
             if latest and latest["status"] == "cancelled":
                 return
+            if playlist and archive_key:
+                stats["discovered"] = max(stats["discovered"], stats["downloaded"] + stats["existing"] + stats["failed"])
+                self.repo.update_playlist_results(playlist["id"], stats["discovered"], stats["downloaded"],
+                                                  stats["existing"], stats["failed"])
             if returncode == 0:
                 thumbnail_message = None
                 latest = self.repo.get_job(job_id)
