@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 
 DEFAULT_CIDRS = "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128"
@@ -34,6 +36,7 @@ class Settings:
     write_auto_subs: bool = False
     max_filename_bytes: int = 200
     ffmpeg_strict_experimental: bool = False
+    archive_dir: Path | None = None
 
 
 def _integer(name: str, default: int, minimum: int) -> int:
@@ -44,7 +47,19 @@ def _integer(name: str, default: int, minimum: int) -> int:
     return max(value, minimum)
 
 
+def playlist_archive_key(url: str) -> str:
+    """Return a filesystem-safe archive name for a playlist URL's ``list=`` id, or "" for non-playlist URLs."""
+    playlist_id = parse_qs(urlparse(url).query).get("list", [""])[0].strip()
+    if not playlist_id:
+        return ""
+    key = re.sub(r"[^A-Za-z0-9_-]", "_", playlist_id)[:100]
+    if key != playlist_id:
+        key = f"{key}-{hashlib.sha1(playlist_id.encode()).hexdigest()[:10]}"
+    return key
+
+
 def load_settings() -> Settings:
+    db_path = Path(os.getenv("YTPI_DB_PATH", "./data/jobs.db")).resolve()
     cidrs = tuple(
         ipaddress.ip_network(value.strip(), strict=False)
         for value in os.getenv("YTPI_ALLOWED_CIDRS", DEFAULT_CIDRS).split(",")
@@ -53,7 +68,7 @@ def load_settings() -> Settings:
     return Settings(
         host=os.getenv("YTPI_HOST", "0.0.0.0"),
         port=_integer("YTPI_PORT", 7434, 1),
-        db_path=Path(os.getenv("YTPI_DB_PATH", "./data/jobs.db")).resolve(),
+        db_path=db_path,
         downloads_dir=Path(os.getenv("YTPI_DOWNLOADS_DIR", "./downloads")).resolve(),
         allowed_cidrs=cidrs,
         trust_proxy=os.getenv("YTPI_TRUST_PROXY", "0").lower() in {"1", "true", "yes", "on"},
@@ -71,6 +86,7 @@ def load_settings() -> Settings:
         write_auto_subs=os.getenv("YTPI_WRITE_AUTO_SUBS", "0").lower() in {"1", "true", "yes", "on"},
         max_filename_bytes=_integer("YTPI_MAX_FILENAME_BYTES", 200, 20),
         ffmpeg_strict_experimental=os.getenv("YTPI_FFMPEG_STRICT_EXPERIMENTAL", "0").lower() in {"1", "true", "yes", "on"},
+        archive_dir=Path(os.getenv("YTPI_ARCHIVE_DIR", str(db_path.parent / "archives"))).resolve(),
     )
 
 

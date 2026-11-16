@@ -9,7 +9,7 @@ YTPI is a private, responsive YouTube download manager for your home network. Th
 - Monitor download progress, stage, speed, errors, and technical output; search and filter history; load more results.
 - Cancel queued or active work and retry failed/cancelled jobs.
 - Persist job history and saved playlist settings in SQLite; recover interrupted downloads after restart.
-- Edit saved playlist settings and request playlist syncs; show requested, active, failed, and last successful sync state.
+- Edit saved playlist settings and request playlist syncs; show requested, active, failed, and last successful sync state. Playlist syncs are incremental: each playlist gets a `--download-archive` file (keyed by its `list=` id) under `data/archives/`, so re-syncs skip already-downloaded videos and the discovered/already-saved counts come from the archive skips.
 - Maintain the CIDR allowlist on every web/API/health endpoint. Optional trusted-proxy handling and literal private-IP blocking are configurable.
 - Run in Docker with health checks, persistent database/media mounts, ffmpeg, and the JavaScript runtime used by yt-dlp remote components.
 
@@ -62,6 +62,7 @@ The v1 application source remains in Git history and can be restored by checking
 | `YTPI_WRITE_AUTO_SUBS` | `0` | Fetch/convert English auto-captions. Optional because YouTube subtitle requests can be rate-limited independently of video downloads. |
 | `YTPI_MAX_FILENAME_BYTES` | `200` | Byte cap applied to the `%(title)` and `%(playlist)` fields in output names (yt-dlp `%(title).200B`), keeping files under the 255-byte filesystem limit. Media and thumbnail names use the same cap. |
 | `YTPI_FFMPEG_STRICT_EXPERIMENTAL` | `0` | Pass `--postprocessor-args "ffmpeg:-strict -2"` to yt-dlp. Only needed with an old external ffmpeg (see Troubleshooting). |
+| `YTPI_ARCHIVE_DIR` | `<db dir>/archives` | Where per-playlist yt-dlp download archives are stored; keep it inside the mounted `data/` directory so it survives restarts. |
 | `YTPI_MAX_WORKERS` | `1` | Concurrent downloader worker count; `0` disables workers. |
 | `YTPI_MAX_QUEUE_SIZE` | `200` | Maximum active jobs. |
 | `YTPI_JOB_TIMEOUT_SECONDS` | `3600` | Per-job timeout in seconds. |
